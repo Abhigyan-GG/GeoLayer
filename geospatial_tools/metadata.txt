@@ -1,0 +1,29 @@
+[general]
+name=GeoSpatial Tools
+qgisMinimumVersion=3.28
+description=Geospatial rendering and GeoTIFF generation toolkit for QGIS
+version=0.1.0       
+author= Abhigyan     
+email=geospatial-tools@example.com
+about=A production-quality QGIS plugin that renders map layers into properly georeferenced GeoTIFF files. Supports any QGIS-renderable layer including XYZ tiles, WMS/WMTS, rasters, vectors, GeoPackages, and shapefiles. Features location search, AOI management, configurable resolution, CRS preservation, and automated GeoTIFF validation.
+tracker=https://github.com/geospatial-tools/qgis-geospatial-tools/issues
+repository=https://github.com/geospatial-tools/qgis-geospatial-tools
+tags=geotiff,raster,rendering,export,georeferencing,geospatial
+homepage=https://github.com/geospatial-tools/qgis-geospatial-tools
+category=Raster
+icon=icon.png
+experimental=True
+deprecated=False
+supportsQt6=True
+hasProcessingProvider=no
+changelog=
+    0.1.0 - Initial release
+    - Core map rendering engine using QgsMapRendererParallelJob
+    - GeoTIFF generation with GDAL
+    - Georeferencing with affine transform preservation
+    - CRS detection and output
+    - GeoTIFF validation
+    - Location search with geocoding
+    - AOI management (radius, rectangle, current extent, draw on map)
+    - Layer selection UI
+    - Configurable resolution and compression
