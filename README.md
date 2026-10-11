@@ -128,7 +128,7 @@ Click the **GeoSpatial Tools** icon on the toolbar or select **Raster → GeoSpa
   - `"IIT Delhi"`
   - `"28.6315, 77.2167"`
 - Press **Enter** or click **Search**.
-- Select the best result from the dropdown if multiple matches appear. The map canvas will automatically pan to the location.
+- Select the best result from the dropdown if multiple matches appear. The map canvas will automatically zoom to the location.
 
 ### 3. Define the Area of Interest (AOI)
 Choose your preferred definition method:

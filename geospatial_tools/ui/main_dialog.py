@@ -39,7 +39,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..core.aoi_manager import AOIResult
-from ..core.crs_utils import transform_extent, transform_point
+from ..core.crs_utils import transform_extent
 from ..core.geocoder import GeocodingResult
 from ..core.georeferencing import build_georeference
 from ..core.layer_manager import LayerManager
@@ -181,8 +181,35 @@ class MainDialog(QDialog):
 
         # Zoom canvas to location
         canvas_crs = self.canvas.mapSettings().destinationCrs()
-        center_canvas = transform_point(pt, wgs84, canvas_crs)
-        self.canvas.setCenter(center_canvas)
+        if result.bbox and len(result.bbox) == 4:
+            south, north, west, east = result.bbox
+            if east > west and north > south:
+                location_extent = QgsRectangle(west, south, east, north)
+            else:
+                location_extent = QgsRectangle(
+                    result.longitude - 0.01,
+                    result.latitude - 0.01,
+                    result.longitude + 0.01,
+                    result.latitude + 0.01,
+                )
+        else:
+            location_extent = QgsRectangle(
+                result.longitude - 0.01,
+                result.latitude - 0.01,
+                result.longitude + 0.01,
+                result.latitude + 0.01,
+            )
+
+        center = location_extent.center()
+        half_width = max(location_extent.width() * 0.6, 0.01)
+        half_height = max(location_extent.height() * 0.6, 0.01)
+        location_extent = QgsRectangle(
+            center.x() - half_width,
+            center.y() - half_height,
+            center.x() + half_width,
+            center.y() + half_height,
+        )
+        self.canvas.setExtent(transform_extent(location_extent, wgs84, canvas_crs))
         self.canvas.refresh()
 
     def _on_aoi_changed(self, aoi: AOIResult) -> None:
