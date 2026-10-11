@@ -209,7 +209,11 @@ class MainDialog(QDialog):
             center.x() + half_width,
             center.y() + half_height,
         )
-        self.canvas.setExtent(transform_extent(location_extent, wgs84, canvas_crs))
+        location_extent_canvas = transform_extent(
+            location_extent, wgs84, canvas_crs
+        )
+        self.canvas.zoomToFeatureExtent(location_extent_canvas)
+        self._update_rubber_band(location_extent, wgs84)
         self.canvas.refresh()
 
     def _on_aoi_changed(self, aoi: AOIResult) -> None:
