@@ -9,7 +9,7 @@ so they are never scattered across the codebase.
 # Plugin identity
 # ---------------------------------------------------------------------------
 PLUGIN_NAME = "GeoSpatial Tools"
-PLUGIN_VERSION = "0.1.1"
+PLUGIN_VERSION = "0.1.2"
 PLUGIN_TAG = "GeoSpatialTools"
 
 # ---------------------------------------------------------------------------

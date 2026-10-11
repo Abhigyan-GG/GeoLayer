@@ -47,7 +47,7 @@ class RenderRequest:
     width: int
     height: int
     dpi: int = DEFAULT_DPI
-    background_color: QColor = QColor(255, 255, 255, 255)
+    background_color: Optional[QColor] = None
 
 
 @dataclass
@@ -245,7 +245,12 @@ class MapRenderer:
         settings.setOutputDpi(request.dpi)
 
         # Background
-        settings.setBackgroundColor(request.background_color)
+        bg_color = (
+            request.background_color
+            if request.background_color is not None
+            else QColor(255, 255, 255, 255)
+        )
+        settings.setBackgroundColor(bg_color)
 
         # Use anti-aliasing for better visual quality across QGIS 3 and 4
         from ..utils.compat import set_map_setting_flag

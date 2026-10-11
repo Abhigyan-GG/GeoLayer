@@ -3,7 +3,7 @@ name=GeoSpatial Tools
 qgisMinimumVersion=3.28
 qgisMaximumVersion=4.99
 description=Geospatial rendering and GeoTIFF generation toolkit for QGIS
-version=0.1.1
+version=0.1.2
 author=Abhigyan
 email=geospatial-tools@example.com
 about=A production-quality QGIS plugin that renders map layers into properly georeferenced GeoTIFF files. Supports any QGIS-renderable layer including XYZ tiles, WMS/WMTS, rasters, vectors, GeoPackages, and shapefiles. Features location search, AOI management, configurable resolution, CRS preservation, and automated GeoTIFF validation.
@@ -17,6 +17,8 @@ experimental=True
 deprecated=False
 hasProcessingProvider=no
 changelog=
+    0.1.2 - Fix Python 3.12 mutable dataclass default error in RenderRequest
+    - Resolved ValueError: mutable default for field background_color is not allowed
     0.1.1 - Added official QGIS 4.x (4.2.1) and Windows QGIS compatibility
     - Full dual compatibility for Qt5/QGIS 3.28+ and Qt6/QGIS 4.x
     - Fixed QgsRubberBand import location to qgis.gui

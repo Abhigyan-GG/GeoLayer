@@ -21,7 +21,7 @@ class RasterProcessingConfig:
     resampling_method: str = "nearest"  # bilinear, cubic, lanczos
     normalize: bool = False
     denoise: bool = False
-    custom_params: Dict[str, Any] = None
+    custom_params: Optional[Dict[str, Any]] = None
 
 
 class BaseRasterProcessor(ABC):
