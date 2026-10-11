@@ -171,7 +171,7 @@ class AOIWidget(QGroupBox):
         summary_layout = QFormLayout(summary_group)
 
         self._lbl_extent = QLabel("—")
-        self._lbl_extent.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._lbl_extent.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._lbl_extent.setWordWrap(True)
 
         self._lbl_dims = QLabel("—")

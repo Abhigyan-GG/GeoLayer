@@ -70,12 +70,12 @@ class LocationWidget(QGroupBox):
         coord_row = QHBoxLayout()
         coord_row.addWidget(QLabel("Lat:"))
         self._lat_label = QLabel("—")
-        self._lat_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._lat_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         coord_row.addWidget(self._lat_label)
 
         coord_row.addWidget(QLabel("Lon:"))
         self._lon_label = QLabel("—")
-        self._lon_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._lon_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         coord_row.addWidget(self._lon_label)
         layout.addLayout(coord_row)
 

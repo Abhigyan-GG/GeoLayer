@@ -167,7 +167,8 @@ class MapRenderer:
         timeout.timeout.connect(on_timeout)
         timeout.start(300_000)
 
-        loop.exec_()
+        exec_method = getattr(loop, "exec", None) or getattr(loop, "exec_")
+        exec_method()
         timeout.stop()
 
         self._job = None
@@ -247,8 +248,8 @@ class MapRenderer:
         settings.setBackgroundColor(request.background_color)
 
         # Use anti-aliasing for better visual quality
-        settings.setFlag(QgsMapSettings.Antialiasing, True)
-        settings.setFlag(QgsMapSettings.UseAdvancedEffects, True)
-        settings.setFlag(QgsMapSettings.RenderMapTile, False)
+        settings.setFlag(Qgis.MapSettingsFlag.Antialiasing, True)
+        settings.setFlag(Qgis.MapSettingsFlag.UseAdvancedEffects, True)
+        settings.setFlag(Qgis.MapSettingsFlag.RenderMapTile, False)
 
         return settings

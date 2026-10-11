@@ -96,7 +96,8 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
 
         # OK / Cancel buttons
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox.StandardButton
+        btn_box = QDialogButtonBox(buttons.Ok | buttons.Cancel)
         btn_box.accepted.connect(self._save_and_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)

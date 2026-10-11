@@ -12,7 +12,11 @@ from qgis.core import Qgis
 from qgis.gui import QgisInterface
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtGui import QColor, QIcon, QPainter, QPixmap
-from qgis.PyQt.QtWidgets import QAction
+
+try:
+    from qgis.PyQt.QtGui import QAction
+except ImportError:
+    from qgis.PyQt.QtWidgets import QAction
 
 from .ui.main_dialog import MainDialog
 from .ui.settings_dialog import SettingsDialog
@@ -103,7 +107,8 @@ class GeoSpatialToolsPlugin:
     def open_settings(self) -> None:
         """Open the settings dialog."""
         dialog = SettingsDialog(parent=self.iface.mainWindow())
-        dialog.exec_()
+        exec_method = getattr(dialog, "exec", None) or getattr(dialog, "exec_")
+        exec_method()
 
     # ------------------------------------------------------------------
     # Helpers

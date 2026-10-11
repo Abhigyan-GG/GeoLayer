@@ -19,10 +19,9 @@ from qgis.core import (
     QgsProject,
     QgsRasterLayer,
     QgsRectangle,
-    QgsRubberBand,
     QgsWkbTypes,
 )
-from qgis.gui import QgsMapCanvas, QgsMapToolEmitPoint
+from qgis.gui import QgsMapCanvas, QgsMapToolEmitPoint, QgsRubberBand
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import (
@@ -61,6 +60,11 @@ from .widgets.layer_selector import LayerSelectorWidget
 from .widgets.location_widget import LocationWidget
 
 logger = get_logger()
+_POLYGON_GEOMETRY = (
+    Qgis.GeometryType.Polygon
+    if hasattr(Qgis, "GeometryType")
+    else QgsWkbTypes.PolygonGeometry
+)
 
 
 class MainDialog(QDialog):
@@ -224,7 +228,7 @@ class MainDialog(QDialog):
         crs: QgsCoordinateReferenceSystem,
     ) -> None:
         if self._rubber_band is None:
-            self._rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.PolygonGeometry)
+            self._rubber_band = QgsRubberBand(self.canvas, _POLYGON_GEOMETRY)
             self._rubber_band.setColor(QColor(255, 68, 68, 60))
             self._rubber_band.setStrokeColor(QColor(255, 0, 0, 220))
             self._rubber_band.setWidth(2)
@@ -237,7 +241,7 @@ class MainDialog(QDialog):
 
     def _clear_rubber_band(self) -> None:
         if self._rubber_band:
-            self._rubber_band.reset(QgsWkbTypes.PolygonGeometry)
+            self._rubber_band.reset(_POLYGON_GEOMETRY)
             self._rubber_band.hide()
 
     # ------------------------------------------------------------------
@@ -285,10 +289,10 @@ class MainDialog(QDialog):
                 f"Estimated uncompressed image size is ~{format_file_size(mem_bytes)}.\n"
                 f"Rendering this raster may consume significant RAM.\n\n"
                 f"Do you want to continue?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return
 
         # Ensure directory is writable
