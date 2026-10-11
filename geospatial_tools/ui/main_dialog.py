@@ -34,7 +34,7 @@ from qgis.PyQt.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSplitArea if False else QSplitter,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
