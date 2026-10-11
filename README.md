@@ -96,25 +96,24 @@ qgis-geospatial-tools/
 
 ## 🚀 Installation
 
-### Option 1: Direct Copy into QGIS Plugins Directory
-1. Locate your active QGIS user profile's python plugin directory:
-   - **Windows**: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\`
-   - **Linux**: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
-   - **macOS**: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
+### Option 1: Install from ZIP (Recommended for Windows & All Platforms)
+1. Generate or use `geospatial_tools.zip` in the repository root (run `python package_plugin.py` to rebuild if needed).
+2. In QGIS, navigate to **Plugins → Manage and Install Plugins… → Install from ZIP**.
+3. Select `geospatial_tools.zip` and click **Install Plugin**.
+4. Check **GeoSpatial Tools** under the **Installed** tab to enable it.
+
+### Option 2: Direct Copy into QGIS Plugins Directory
+1. Locate your active QGIS user profile's python plugin directory (or open via **Settings → User Profiles → Open Active Profile Folder**):
+   - **Windows (QGIS 4.x)**: `%APPDATA%\QGIS\QGIS4\profiles\default\python\plugins\`
+   - **Windows (QGIS 3.x)**: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\`
+   - **Linux**: `~/.local/share/QGIS/QGIS4/profiles/default/python/plugins/` (or `QGIS3`)
+   - **macOS**: `~/Library/Application Support/QGIS/QGIS4/profiles/default/python/plugins/` (or `QGIS3`)
 2. Copy or symlink the `geospatial_tools` folder into that directory:
-   ```bash
-   cp -r geospatial_tools/ "%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\geospatial_tools"
+   ```cmd
+   xcopy /E /I geospatial_tools "%APPDATA%\QGIS\QGIS4\profiles\default\python\plugins\geospatial_tools"
    ```
 3. Restart QGIS or reload plugins via the **Plugin Reloader** plugin.
 4. Open **Plugins → Manage and Install Plugins… → Installed** and check **GeoSpatial Tools**.
-
-### Option 2: Install from ZIP
-1. Zip the `geospatial_tools` folder:
-   ```bash
-   zip -r geospatial_tools.zip geospatial_tools/
-   ```
-2. In QGIS, navigate to **Plugins → Manage and Install Plugins… → Install from ZIP**.
-3. Select `geospatial_tools.zip` and click **Install Plugin**.
 
 ---
 

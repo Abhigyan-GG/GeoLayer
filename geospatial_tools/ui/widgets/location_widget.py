@@ -20,6 +20,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ...core.geocoder import GeocodingResult, NominatimGeocoder
+from ...utils.compat import TEXT_SELECTABLE_BY_MOUSE
 from ...utils.plugin_logger import get_logger
 
 logger = get_logger()
@@ -70,12 +71,14 @@ class LocationWidget(QGroupBox):
         coord_row = QHBoxLayout()
         coord_row.addWidget(QLabel("Lat:"))
         self._lat_label = QLabel("—")
-        self._lat_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if TEXT_SELECTABLE_BY_MOUSE:
+            self._lat_label.setTextInteractionFlags(TEXT_SELECTABLE_BY_MOUSE)
         coord_row.addWidget(self._lat_label)
 
         coord_row.addWidget(QLabel("Lon:"))
         self._lon_label = QLabel("—")
-        self._lon_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if TEXT_SELECTABLE_BY_MOUSE:
+            self._lon_label.setTextInteractionFlags(TEXT_SELECTABLE_BY_MOUSE)
         coord_row.addWidget(self._lon_label)
         layout.addLayout(coord_row)
 

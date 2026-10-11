@@ -22,6 +22,17 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ...core.layer_manager import LayerInfo, LayerManager
+from ...utils.compat import (
+    CHECK_CHECKED,
+    CHECK_UNCHECKED,
+    HEADER_RESIZE_TO_CONTENTS,
+    HEADER_STRETCH,
+    ITEM_CHECKABLE,
+    ITEM_ENABLED,
+    ITEM_SELECTABLE,
+    SELECTION_SELECT_ROWS,
+    USER_ROLE,
+)
 from ...utils.plugin_logger import get_logger
 
 logger = get_logger()
@@ -57,11 +68,11 @@ class LayerSelectorWidget(QGroupBox):
         self._table = QTableWidget()
         self._table.setColumnCount(4)
         self._table.setHorizontalHeaderLabels(["Include", "Layer Name", "Type", "CRS"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.horizontalHeader().setSectionResizeMode(0, HEADER_RESIZE_TO_CONTENTS)
+        self._table.horizontalHeader().setSectionResizeMode(1, HEADER_STRETCH)
+        self._table.horizontalHeader().setSectionResizeMode(2, HEADER_RESIZE_TO_CONTENTS)
+        self._table.horizontalHeader().setSectionResizeMode(3, HEADER_RESIZE_TO_CONTENTS)
+        self._table.setSelectionBehavior(SELECTION_SELECT_ROWS)
         self._table.setAlternatingRowColors(True)
         layout.addWidget(self._table)
 
@@ -101,24 +112,24 @@ class LayerSelectorWidget(QGroupBox):
         for row, info in enumerate(self._layers_cache):
             # Checkbox item
             chk_item = QTableWidgetItem()
-            chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            chk_item.setCheckState(Qt.CheckState.Checked if info.visible else Qt.CheckState.Unchecked)
-            chk_item.setData(Qt.ItemDataRole.UserRole, info.layer_id)
+            chk_item.setFlags(ITEM_CHECKABLE | ITEM_ENABLED)
+            chk_item.setCheckState(CHECK_CHECKED if info.visible else CHECK_UNCHECKED)
+            chk_item.setData(USER_ROLE, info.layer_id)
             self._table.setItem(row, 0, chk_item)
 
             # Name item
             name_item = QTableWidgetItem(info.name)
-            name_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            name_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
             self._table.setItem(row, 1, name_item)
 
             # Type item
             type_item = QTableWidgetItem(info.layer_type.capitalize())
-            type_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            type_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
             self._table.setItem(row, 2, type_item)
 
             # CRS item
             crs_item = QTableWidgetItem(info.crs_auth or "—")
-            crs_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            crs_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
             self._table.setItem(row, 3, crs_item)
 
         self._table.blockSignals(False)
@@ -132,8 +143,8 @@ class LayerSelectorWidget(QGroupBox):
         selected_ids: List[str] = []
         for row in range(self._table.rowCount()):
             item = self._table.item(row, 0)
-            if item and item.checkState() == Qt.CheckState.Checked:
-                layer_id = item.data(Qt.ItemDataRole.UserRole)
+            if item and item.checkState() == CHECK_CHECKED:
+                layer_id = item.data(USER_ROLE)
                 if layer_id:
                     selected_ids.append(layer_id)
         # Note: in QGIS layer tree, top is index 0. For QgsMapSettings,
@@ -145,21 +156,21 @@ class LayerSelectorWidget(QGroupBox):
     # ------------------------------------------------------------------
 
     def _select_all(self) -> None:
-        self._set_all_check_states(Qt.CheckState.Checked)
+        self._set_all_check_states(CHECK_CHECKED)
 
     def _select_none(self) -> None:
-        self._set_all_check_states(Qt.CheckState.Unchecked)
+        self._set_all_check_states(CHECK_UNCHECKED)
 
     def _select_visible(self) -> None:
         self._table.blockSignals(True)
         for row, info in enumerate(self._layers_cache):
             item = self._table.item(row, 0)
             if item:
-                item.setCheckState(Qt.CheckState.Checked if info.visible else Qt.CheckState.Unchecked)
+                item.setCheckState(CHECK_CHECKED if info.visible else CHECK_UNCHECKED)
         self._table.blockSignals(False)
         self._emit_selection()
 
-    def _set_all_check_states(self, state: Qt.CheckState) -> None:
+    def _set_all_check_states(self, state) -> None:
         self._table.blockSignals(True)
         for row in range(self._table.rowCount()):
             item = self._table.item(row, 0)

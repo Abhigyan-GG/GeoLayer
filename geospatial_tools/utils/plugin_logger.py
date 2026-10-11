@@ -43,10 +43,17 @@ class PluginLogger:
 
         # Try to import QGIS logging — may not be available in tests
         self._qgis_available = False
+        self._lvl_info = 0
+        self._lvl_warning = 1
+        self._lvl_critical = 2
         try:
             from qgis.core import QgsMessageLog, Qgis
             self._QgsMessageLog = QgsMessageLog
             self._Qgis = Qgis
+            lvl_cls = getattr(Qgis, "MessageLevel", Qgis)
+            self._lvl_info = getattr(lvl_cls, "Info", getattr(Qgis, "Info", 0))
+            self._lvl_warning = getattr(lvl_cls, "Warning", getattr(Qgis, "Warning", 1))
+            self._lvl_critical = getattr(lvl_cls, "Critical", getattr(Qgis, "Critical", 2))
             self._qgis_available = True
         except ImportError:
             pass
@@ -56,7 +63,7 @@ class PluginLogger:
         self._logger.info(message)
         if self._qgis_available:
             self._QgsMessageLog.logMessage(
-                message, self.tag, self._Qgis.Info
+                message, self.tag, self._lvl_info
             )
 
     def warning(self, message: str) -> None:
@@ -64,7 +71,7 @@ class PluginLogger:
         self._logger.warning(message)
         if self._qgis_available:
             self._QgsMessageLog.logMessage(
-                message, self.tag, self._Qgis.Warning
+                message, self.tag, self._lvl_warning
             )
 
     def error(self, message: str) -> None:
@@ -72,7 +79,7 @@ class PluginLogger:
         self._logger.error(message)
         if self._qgis_available:
             self._QgsMessageLog.logMessage(
-                message, self.tag, self._Qgis.Critical
+                message, self.tag, self._lvl_critical
             )
 
     def debug(self, message: str) -> None:

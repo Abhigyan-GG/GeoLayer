@@ -247,9 +247,10 @@ class MapRenderer:
         # Background
         settings.setBackgroundColor(request.background_color)
 
-        # Use anti-aliasing for better visual quality
-        settings.setFlag(Qgis.MapSettingsFlag.Antialiasing, True)
-        settings.setFlag(Qgis.MapSettingsFlag.UseAdvancedEffects, True)
-        settings.setFlag(Qgis.MapSettingsFlag.RenderMapTile, False)
+        # Use anti-aliasing for better visual quality across QGIS 3 and 4
+        from ..utils.compat import set_map_setting_flag
+        set_map_setting_flag(settings, "Antialiasing", True)
+        set_map_setting_flag(settings, "UseAdvancedEffects", True)
+        set_map_setting_flag(settings, "RenderMapTile", False)
 
         return settings

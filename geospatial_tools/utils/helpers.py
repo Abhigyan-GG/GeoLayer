@@ -95,7 +95,7 @@ def compute_pixel_dimensions(
 
 def safe_filename(name: str, extension: str = ".tif") -> str:
     """
-    Convert an arbitrary string into a filesystem-safe filename.
+    Convert an arbitrary string into a filesystem-safe filename across Windows and Unix.
 
     Args:
         name: Raw name (e.g., location display name).
@@ -104,12 +104,18 @@ def safe_filename(name: str, extension: str = ".tif") -> str:
     Returns:
         Sanitised filename.
     """
+    # Replace Windows / Unix forbidden characters (< > : " / \ | ? *) with '_'
+    clean = re.sub(r'[<>:"/\\|?*]', '_', name)
     # Replace non-alphanumeric (except spaces, hyphens, underscores) with '_'
-    clean = re.sub(r"[^\w\s\-]", "_", name, flags=re.UNICODE)
-    # Collapse whitespace/underscores
-    clean = re.sub(r"[\s_]+", "_", clean).strip("_")
-    if not clean:
+    clean = re.sub(r"[^\w\s\-]", "_", clean, flags=re.UNICODE)
+    # Collapse whitespace/underscores and strip leading/trailing dots/spaces
+    clean = re.sub(r"[\s_]+", "_", clean).strip("_ .")
+    # Windows reserved DOS device names
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {f"LPT{i}" for i in range(1, 10)}
+    if not clean or clean.upper() in reserved:
         clean = "export"
+    if not extension.startswith("."):
+        extension = "." + extension
     return clean + extension
 
 
@@ -123,7 +129,7 @@ def ensure_directory(path: str) -> str:
     Returns:
         The directory path that was created / verified.
     """
-    directory = os.path.dirname(path)
+    directory = os.path.dirname(os.path.normpath(path))
     if directory:
         os.makedirs(directory, exist_ok=True)
     return directory
@@ -137,17 +143,21 @@ def timestamp_string() -> str:
 def default_output_path(location_name: str = "export",
                         directory: str = "") -> str:
     """
-    Build a default output file path.
+    Build a default output file path with cross-platform normalization.
 
     Args:
         location_name: Human-readable location for the filename.
         directory: Output directory; defaults to user's home/GIS_exports.
 
     Returns:
-        Full absolute path.
+        Full normalized absolute path.
     """
     if not directory:
         directory = os.path.join(os.path.expanduser("~"), "GIS_exports")
-    os.makedirs(directory, exist_ok=True)
+    directory = os.path.normpath(directory)
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except Exception:
+        pass
     fname = safe_filename(location_name)
-    return os.path.join(directory, fname)
+    return os.path.normpath(os.path.join(directory, fname))

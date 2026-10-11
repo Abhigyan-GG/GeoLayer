@@ -118,6 +118,7 @@ class RasterWriter:
     ) -> WriteResult:
         """Core write logic — separated for clean exception handling."""
 
+        output_path = os.path.normpath(output_path)
         # Ensure output directory exists
         ensure_directory(output_path)
 
@@ -231,22 +232,33 @@ class RasterWriter:
         Convert a QImage to a numpy array with shape (H, W, 4) in RGBA order.
 
         QImage stores pixels as ARGB (or BGRA in memory on little-endian).
-        This method normalises to RGBA.
+        This method normalises to RGBA and safely handles row stride padding.
         """
         # Support both Qt5 and Qt6 enum namespace
-        fmt = getattr(QImage, "Format_ARGB32", getattr(QImage.Format, "Format_ARGB32", None))
+        fmt = (
+            getattr(getattr(QImage, "Format", None), "Format_ARGB32", None)
+            or getattr(QImage, "Format_ARGB32", None)
+        )
         img = image.convertToFormat(fmt)
 
         width = img.width()
         height = img.height()
+        bytes_per_line = img.bytesPerLine()
 
         # Access raw pixel data
         ptr = img.bits()
         if ptr is None:
             return None
 
-        ptr.setsize(height * width * 4)
-        arr = np.frombuffer(ptr, dtype=np.uint8).reshape((height, width, 4)).copy()
+        total_bytes = height * bytes_per_line
+        if hasattr(ptr, "setsize"):
+            ptr.setsize(total_bytes)
+
+        arr = np.frombuffer(ptr, dtype=np.uint8)
+        if bytes_per_line != width * 4:
+            arr = arr.reshape((height, bytes_per_line))[:, : width * 4].reshape((height, width, 4)).copy()
+        else:
+            arr = arr.reshape((height, width, 4)).copy()
 
         # QImage ARGB32 is stored as BGRA in memory (little-endian)
         # Reorder to RGBA: swap B and R channels

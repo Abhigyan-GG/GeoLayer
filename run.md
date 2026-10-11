@@ -1,101 +1,139 @@
-# Run GeoSpatial Tools in QGIS
+# Run GeoSpatial Tools in QGIS (Windows & macOS)
 
-## 1. Install QGIS
+This guide covers running **GeoSpatial Tools** on **QGIS 4.2.1+ (Qt6)** as well as **QGIS 3.28+ (Qt5)** across **Windows**, **macOS**, and **Linux**.
 
-Install QGIS for macOS from the official QGIS download page: <https://qgis.org/download/>. Launch QGIS once so it creates a user profile, then close it before installing this plugin.
+---
 
-The plugin requires QGIS 3.28 or newer. PyQGIS, GDAL, and Qt are supplied by QGIS; a regular system Python installation does not include them.
+## 1. Prerequisites & Compatibility
 
-## 2. Find the plugin folder
+- **Supported QGIS Versions:** QGIS 3.28 through QGIS 4.x (including QGIS 4.2.1-Belém do Pará).
+- **Python / Qt Support:** Dual-compatible with Python 3.9–3.12+ and Qt5 / Qt6 (PyQt5 / PyQt6).
+- All dependencies (`qgis`, `PyQt`, `osgeo/GDAL`, `numpy`) are provided directly inside QGIS. No separate external pip dependencies are required.
 
-In QGIS, open **Settings → User Profiles → Open Active Profile Folder** (the menu wording can vary slightly by QGIS version). Inside that folder, the plugin directory is:
+---
 
-```text
-python/plugins/
+## 2. Locate Your QGIS Plugin Directory
+
+The universal method on **any OS** (Windows, macOS, Linux):
+1. Launch QGIS.
+2. In the top menu, click **Settings → User Profiles → Open Active Profile Folder**.
+3. In the folder that opens, navigate into:
+   ```text
+   python/plugins/
+   ```
+
+### Default Profile Paths by Operating System:
+- **Windows (QGIS 4.x):**
+  ```text
+  %APPDATA%\QGIS\QGIS4\profiles\default\python\plugins\
+  ```
+  *(e.g., `C:\Users\<username>\AppData\Roaming\QGIS\QGIS4\profiles\default\python\plugins\`)*
+- **Windows (QGIS 3.x):**
+  ```text
+  %APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\
+  ```
+- **macOS (QGIS 4.x):**
+  ```text
+  ~/Library/Application Support/QGIS/QGIS4/profiles/default/python/plugins/
+  ```
+- **macOS (QGIS 3.x):**
+  ```text
+  ~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/
+  ```
+- **Linux:**
+  ```text
+  ~/.local/share/QGIS/QGIS4/profiles/default/python/plugins/  (or QGIS3)
+  ```
+
+---
+
+## 3. Install the Plugin
+
+Choose either **Method A (ZIP - Recommended for Windows)** or **Method B (Direct Folder Copy/Symlink)**.
+
+### Method A: Install from ZIP (Recommended & Easiest)
+1. In the repository folder, a clean `geospatial_tools.zip` is pre-packaged. (You can also re-create it at any time by running `python package_plugin.py`).
+2. Open QGIS.
+3. Go to **Plugins → Manage and Install Plugins… → Install from ZIP**.
+4. Browse to and select `geospatial_tools.zip`.
+5. Click **Install Plugin**.
+6. When prompted, confirm overwrite if an older version exists.
+
+### Method B: Direct Folder Copy / Symlink
+Copy the `geospatial_tools` directory into your active profile's `python/plugins/` directory:
+
+**Windows (Command Prompt / PowerShell):**
+```bat
+xcopy /E /I geospatial_tools "%APPDATA%\QGIS\QGIS4\profiles\default\python\plugins\geospatial_tools"
 ```
+*(Replace `QGIS4` with `QGIS3` if running on QGIS 3.x)*
 
-On a standard macOS default profile, the full path is usually:
-
-```text
-~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/
-```
-
-Use the active profile folder shown by QGIS if you selected a different profile. You can also confirm the path from QGIS's Python Console:
-
-```python
-from qgis.core import QgsApplication
-import os
-
-plugin_path = os.path.join(QgsApplication.qgisSettingsDirPath(), "python", "plugins", "geospatial_tools")
-print(plugin_path)
-print(os.path.isdir(plugin_path))
-```
-
-The second line of output should be `True` after installation.
-
-## 3. Install this checkout
-
-Open Terminal and change to the repository root (the directory containing `README.md` and `geospatial_tools/`). For example:
-
+**macOS / Linux (Terminal symlink for live development):**
 ```bash
-cd ~/Downloads/GeoLayer
-```
-
-Create the plugin folder if needed, then make a symlink so edits in this checkout are used directly by QGIS:
-
-```bash
-PLUGIN_DIR="$HOME/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins"
+PLUGIN_DIR="$HOME/Library/Application Support/QGIS/QGIS4/profiles/default/python/plugins"
 mkdir -p "$PLUGIN_DIR"
 ln -s "$PWD/geospatial_tools" "$PLUGIN_DIR/geospatial_tools"
 ```
 
-If you use a non-default QGIS profile, replace `PLUGIN_DIR` with that profile's `python/plugins` path. If `geospatial_tools` already exists there, inspect it first: keep a backup or remove/rename the old installation before creating the symlink. Do not replace an existing folder blindly.
+---
 
-Alternatively, create an installable ZIP from the repository root:
-
-```bash
-zip -r geospatial_tools.zip geospatial_tools -x "*.pyc" "*__pycache__*"
-```
-
-Then in QGIS select **Plugins → Manage and Install Plugins… → Install from ZIP**, choose `geospatial_tools.zip`, and install it.
-
-## 4. Enable and open the plugin
+## 4. Enable and Open the Plugin in QGIS
 
 1. Start or restart QGIS.
 2. Open **Plugins → Manage and Install Plugins… → Installed**.
-3. Find **GeoSpatial Tools** and check its box to enable it.
-4. Open it from the **Raster → GeoSpatial Tools** menu or its toolbar button. If it is not listed, see the troubleshooting section below.
+3. Check the box next to **GeoSpatial Tools**.
+4. Open the plugin via:
+   - The toolbar icon (blue grid icon)
+   - Or the menu: **Raster → GeoSpatial Tools → Render & Generate GeoTIFF…**
 
-## 5. Run a quick smoke check
+---
 
-1. Load at least one raster or vector layer into a QGIS project. An XYZ/WMS layer can also be used if it is available and its provider permits export.
-2. Open **GeoSpatial Tools → Render & Generate GeoTIFF…** from the Raster menu.
-3. Search for a place or enter coordinates, choose an AOI, select layers, and choose an output file and resolution.
-4. Generate the GeoTIFF. Confirm that the output is added to the project under **GeoSpatial Tools — Exports** and that the file exists at the chosen location.
+## 5. Quick Smoke Test
 
-For a safe first run, use a small area and a modest resolution. Export rights for third-party map data remain subject to the provider's terms.
+1. Add any raster layer, vector layer, or OpenStreetMap XYZ Tile (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) to your QGIS project.
+2. Open **GeoSpatial Tools → Render & Generate GeoTIFF…**.
+3. Search for a location (e.g. `Connaught Place, New Delhi` or `28.6315, 77.2167`).
+4. Select an AOI (e.g. `Radius: 500 m`). Click **Preview AOI on Canvas** to see the red preview box.
+5. Select the layer in the **Layers to Render** table.
+6. Choose an output destination and click **GENERATE GEOTIFF**.
+7. Verify that the GeoTIFF is generated, validated via GDAL, and automatically added to your QGIS project under the `GeoSpatial Tools — Exports` group.
 
-## 6. Run the tests
+---
 
-Run the tests using Python provided by the same QGIS installation, not macOS's standalone `python3`. The repository test suite imports PyQGIS and GDAL, so a normal system interpreter will report missing `qgis` or `osgeo` modules.
+## 6. Running Unit & Integration Tests
 
-From a QGIS Python Console, the following runs the suite with QGIS's active Python environment. Replace the repository path if it is elsewhere:
+Because PyQGIS and GDAL are provided by QGIS's environment, tests must be run using QGIS's Python interpreter:
 
+### Windows (OSGeo4W Shell or Python Console):
+From OSGeo4W Shell:
+```bat
+python-qgis -m unittest discover -s tests -p "test_*.py" -v
+```
+
+### From QGIS Python Console (Any OS):
+Open **Plugins → Python Console** in QGIS and run:
 ```python
-import os
-import subprocess
-import sys
+import os, subprocess, sys
 
-repo = os.path.expanduser("~/Downloads/GeoLayer")
+repo = r"C:\path\to\GeoLayer"  # Replace with your repository path
 subprocess.run(
     [sys.executable, "-m", "unittest", "discover", "-s", os.path.join(repo, "tests"), "-p", "test_*.py", "-v"],
     cwd=repo,
 )
 ```
 
-## Troubleshooting
+---
 
-- **Plugin missing from the Installed list:** confirm that `geospatial_tools/metadata.txt` is inside the active profile's `python/plugins/geospatial_tools/` directory, enable the plugin in Plugin Manager, and restart QGIS.
-- **Plugin fails to load:** open **Plugins → Python Console**, inspect the QGIS message log for the traceback, and verify that the installation contains the current `geospatial_tools` package. The plugin's main entry point is `geospatial_tools/__init__.py` (`classFactory`).
-- **Plugin installed to the wrong profile:** use QGIS's **Open Active Profile Folder** command and move/install it under that profile's `python/plugins/` folder.
-- **Tests fail with `No module named 'qgis'` or `No module named 'osgeo'`:** the tests are being run with a Python environment outside QGIS. Run them from QGIS's Python environment as described above.
+## 7. Troubleshooting & Error Explanations
+
+### `ImportError: cannot import name 'QgsRubberBand' from 'qgis.core'`
+- **Cause:** In earlier plugin builds, `QgsRubberBand` was incorrectly imported from `qgis.core`. In both QGIS 3 and QGIS 4, `QgsRubberBand` belongs to `qgis.gui`.
+- **Solution:** This has been resolved in v0.1.1 with a dual-fallback compatibility layer (`geospatial_tools.utils.compat`). If you previously installed an older version, make sure to overwrite or delete the old folder in `%APPDATA%\QGIS\QGIS4\profiles\default\python\plugins\geospatial_tools` and reinstall from `geospatial_tools.zip`.
+
+### Plugin does not show in QGIS 4 Plugin Manager
+- **Cause:** QGIS 4 requires `qgisMaximumVersion = 4.99` in `metadata.txt`. If absent, QGIS assumes the plugin only targets QGIS 3.
+- **Solution:** `metadata.txt` is updated with `qgisMinimumVersion=3.28` and `qgisMaximumVersion=4.99`. Deprecated `supportsQt6=True` flag has been removed.
+
+### Path / Filename errors on Windows
+- **Cause:** File paths containing colons or unescaped backslashes from location names (e.g. `Delhi: Zone 1`).
+- **Solution:** Built-in filename sanitization (`safe_filename`) strips illegal Windows characters (`<>:"/\|?*`) and ensures all paths are normalized via `os.path.normpath`.

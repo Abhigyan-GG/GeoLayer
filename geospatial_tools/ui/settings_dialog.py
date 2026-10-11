@@ -5,6 +5,7 @@ Allows configuring plugin preferences stored persistently
 using QGIS's native QgsSettings infrastructure.
 """
 
+import os
 from typing import Optional
 
 from qgis.core import QgsSettings
@@ -17,11 +18,13 @@ from qgis.PyQt.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLineEdit,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from ..utils.compat import BUTTON_BOX_BUTTONS
 from ..utils.constants import (
     COMPRESSION_OPTIONS,
     DEFAULT_BIGTIFF,
@@ -53,10 +56,6 @@ class SettingsDialog(QDialog):
         # Default export directory
         row_dir = QHBoxLayout()
         self._txt_dir = QLineEdit()
-        self._btn_browse_dir = QPushButton("Browse…") if False else QFileDialog
-        self._btn_dir = QDialogButtonBox() if False else None
-        # Use simple browse button
-        from qgis.PyQt.QtWidgets import QPushButton
         btn_browse = QPushButton("Browse…")
         btn_browse.clicked.connect(self._browse_dir)
         row_dir.addWidget(self._txt_dir, stretch=1)
@@ -96,8 +95,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
 
         # OK / Cancel buttons
-        buttons = QDialogButtonBox.StandardButton
-        btn_box = QDialogButtonBox(buttons.Ok | buttons.Cancel)
+        btn_box = QDialogButtonBox(BUTTON_BOX_BUTTONS.Ok | BUTTON_BOX_BUTTONS.Cancel)
         btn_box.accepted.connect(self._save_and_accept)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -107,7 +105,7 @@ class SettingsDialog(QDialog):
             self, "Select Default Output Directory", self._txt_dir.text()
         )
         if directory:
-            self._txt_dir.setText(directory)
+            self._txt_dir.setText(os.path.normpath(directory))
 
     def _load_settings(self) -> None:
         prefix = f"{PLUGIN_TAG}/"

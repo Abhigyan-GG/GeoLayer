@@ -46,6 +46,11 @@ from ..core.layer_manager import LayerManager
 from ..core.raster_writer import RasterWriter
 from ..core.renderer import MapRenderer, RenderRequest
 from ..core.validation import GeoTiffValidator
+from ..utils.compat import (
+    MESSAGE_BOX_BUTTONS,
+    POLYGON_GEOMETRY,
+    QgsRubberBand,
+)
 from ..utils.constants import (
     MAX_ESTIMATED_MEMORY_BYTES,
     MAX_RASTER_DIMENSION,
@@ -60,11 +65,6 @@ from .widgets.layer_selector import LayerSelectorWidget
 from .widgets.location_widget import LocationWidget
 
 logger = get_logger()
-_POLYGON_GEOMETRY = (
-    Qgis.GeometryType.Polygon
-    if hasattr(Qgis, "GeometryType")
-    else QgsWkbTypes.PolygonGeometry
-)
 
 
 class MainDialog(QDialog):
@@ -228,7 +228,7 @@ class MainDialog(QDialog):
         crs: QgsCoordinateReferenceSystem,
     ) -> None:
         if self._rubber_band is None:
-            self._rubber_band = QgsRubberBand(self.canvas, _POLYGON_GEOMETRY)
+            self._rubber_band = QgsRubberBand(self.canvas, POLYGON_GEOMETRY)
             self._rubber_band.setColor(QColor(255, 68, 68, 60))
             self._rubber_band.setStrokeColor(QColor(255, 0, 0, 220))
             self._rubber_band.setWidth(2)
@@ -241,7 +241,10 @@ class MainDialog(QDialog):
 
     def _clear_rubber_band(self) -> None:
         if self._rubber_band:
-            self._rubber_band.reset(_POLYGON_GEOMETRY)
+            try:
+                self._rubber_band.reset(POLYGON_GEOMETRY)
+            except TypeError:
+                self._rubber_band.reset()
             self._rubber_band.hide()
 
     # ------------------------------------------------------------------
@@ -270,7 +273,7 @@ class MainDialog(QDialog):
         w_px, h_px = self._widget_export.get_calculated_dimensions()
         out_crs = self._widget_export.get_output_crs()
         res_m = self._widget_export.get_resolution()
-        out_path = self._widget_export.get_output_path()
+        out_path = os.path.normpath(self._widget_export.get_output_path())
 
         if w_px > MAX_RASTER_DIMENSION or h_px > MAX_RASTER_DIMENSION:
             msg = (
@@ -289,10 +292,10 @@ class MainDialog(QDialog):
                 f"Estimated uncompressed image size is ~{format_file_size(mem_bytes)}.\n"
                 f"Rendering this raster may consume significant RAM.\n\n"
                 f"Do you want to continue?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                MESSAGE_BOX_BUTTONS.Yes | MESSAGE_BOX_BUTTONS.No,
+                MESSAGE_BOX_BUTTONS.No,
             )
-            if reply != QMessageBox.StandardButton.Yes:
+            if reply != MESSAGE_BOX_BUTTONS.Yes:
                 return
 
         # Ensure directory is writable

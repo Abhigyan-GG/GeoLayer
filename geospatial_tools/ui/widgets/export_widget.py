@@ -211,7 +211,7 @@ class ExportWidget(QGroupBox):
 
     def get_output_path(self) -> str:
         """Return absolute path to output file."""
-        return self._txt_output_path.text().strip()
+        return os.path.normpath(self._txt_output_path.text().strip())
 
     def set_suggested_filename(self, name: str) -> None:
         """Update suggested filename based on location name."""
@@ -294,7 +294,8 @@ class ExportWidget(QGroupBox):
             "GeoTIFF Files (*.tif *.tiff);;All Files (*)",
         )
         if path:
-            if not (path.endswith(".tif") or path.endswith(".tiff")):
+            path = os.path.normpath(path)
+            if not (path.lower().endswith(".tif") or path.lower().endswith(".tiff")):
                 path += ".tif"
             self._txt_output_path.setText(path)
 

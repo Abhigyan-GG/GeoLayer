@@ -38,6 +38,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ...core.aoi_manager import AOIManager, AOIMethod, AOIParameters, AOIResult
 from ...core.crs_utils import crs_to_string
+from ...utils.compat import TEXT_SELECTABLE_BY_MOUSE
 from ...utils.constants import (
     DEFAULT_AOI_HEIGHT_M,
     DEFAULT_AOI_RADIUS_M,
@@ -171,7 +172,8 @@ class AOIWidget(QGroupBox):
         summary_layout = QFormLayout(summary_group)
 
         self._lbl_extent = QLabel("—")
-        self._lbl_extent.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        if TEXT_SELECTABLE_BY_MOUSE:
+            self._lbl_extent.setTextInteractionFlags(TEXT_SELECTABLE_BY_MOUSE)
         self._lbl_extent.setWordWrap(True)
 
         self._lbl_dims = QLabel("—")

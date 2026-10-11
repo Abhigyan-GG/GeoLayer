@@ -34,7 +34,10 @@ class TestRasterWriter(unittest.TestCase):
     def test_write_and_validate_rgb_geotiff(self):
         # 1. Create a synthetic test QImage (200x150)
         width, height = 200, 150
-        fmt = getattr(QImage, "Format_ARGB32", getattr(QImage.Format, "Format_ARGB32", None))
+        fmt = (
+            getattr(getattr(QImage, "Format", None), "Format_ARGB32", None)
+            or getattr(QImage, "Format_ARGB32", None)
+        )
         image = QImage(width, height, fmt)
         image.fill(QColor(34, 139, 34))  # Forest green
 
