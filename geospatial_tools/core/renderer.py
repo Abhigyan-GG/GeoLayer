@@ -15,6 +15,7 @@ from qgis.core import (
     QgsMapLayer,
     QgsMapRendererParallelJob,
     QgsMapSettings,
+    QgsProject,
     QgsRectangle,
 )
 from qgis.PyQt.QtCore import QEventLoop, QSize, QTimer
@@ -33,7 +34,7 @@ class RenderRequest:
 
     Attributes:
         extent: Geographic/projected extent to render.
-        layers: Ordered list of layers to render (bottom → top).
+        layers: Ordered list in QGIS render order (top → bottom).
         crs: Destination CRS for rendering.
         width: Output image width in pixels.
         height: Output image height in pixels.
@@ -83,6 +84,8 @@ class MapRenderer:
 
     def __init__(self) -> None:
         self._job: Optional[QgsMapRendererParallelJob] = None
+        self._job_layer_ids = set()
+        self._cancelled = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -115,6 +118,22 @@ class MapRenderer:
                 success=False,
                 error_message="No layers selected for rendering.",
             )
+        project = QgsProject.instance()
+        valid_layers = []
+        for layer in request.layers:
+            if layer is None or not layer.isValid():
+                continue
+            current = project.mapLayer(layer.id())
+            if current is not None and current.isValid():
+                valid_layers.append(current)
+        if not valid_layers:
+            return RenderResult(
+                image=None, width=0, height=0, success=False,
+                error_message="No selected layers remain valid in the QGIS project.",
+            )
+        skipped_count = len(request.layers) - len(valid_layers)
+        if skipped_count:
+            logger.warning(f"Skipped {skipped_count} missing or invalid render layer(s).")
         if request.width <= 0 or request.height <= 0:
             return RenderResult(
                 image=None, width=0, height=0,
@@ -135,10 +154,10 @@ class MapRenderer:
         if on_progress:
             on_progress("Configuring map settings…")
 
-        settings = self._build_settings(request)
+        settings = self._build_settings(request, valid_layers)
 
         logger.info(
-            f"Rendering {len(request.layers)} layer(s) at "
+            f"Rendering {len(valid_layers)} layer(s) at "
             f"{request.width}×{request.height} px, "
             f"CRS {request.crs.authid()}"
         )
@@ -149,11 +168,31 @@ class MapRenderer:
 
         job = QgsMapRendererParallelJob(settings)
         self._job = job
+        self._job_layer_ids = {layer.id() for layer in valid_layers}
+        self._cancelled = False
 
         # Use a local event loop so we block but still pump Qt events
         loop = QEventLoop()
         job.finished.connect(loop.quit)
-        job.start()
+
+        def cancel_for_removed_layers(*args) -> None:
+            removed_ids = set()
+            for value in args:
+                if isinstance(value, (list, tuple, set)):
+                    removed_ids.update(
+                        layer.id() if hasattr(layer, "id") else str(layer)
+                        for layer in value
+                    )
+                elif hasattr(value, "id"):
+                    removed_ids.add(value.id())
+                elif isinstance(value, str):
+                    removed_ids.add(value)
+            if self._job_layer_ids.intersection(removed_ids):
+                self.cancel()
+
+        removal_signal = getattr(project, "layersWillBeRemoved", None)
+        if removal_signal is not None:
+            removal_signal.connect(cancel_for_removed_layers)
 
         # Safety timeout: 5 minutes
         timeout = QTimer()
@@ -168,13 +207,20 @@ class MapRenderer:
         timeout.start(300_000)
 
         exec_method = getattr(loop, "exec", None) or getattr(loop, "exec_")
-        exec_method()
-        timeout.stop()
-
-        self._job = None
+        try:
+            job.start()
+            if job.isActive():
+                exec_method()
+        finally:
+            timeout.stop()
+            if removal_signal is not None:
+                removal_signal.disconnect(cancel_for_removed_layers)
 
         if timed_out[0]:
+            self.cancel()
             logger.error("Render timed out after 5 minutes.")
+            self._job = None
+            self._job_layer_ids.clear()
             return RenderResult(
                 image=None,
                 width=request.width,
@@ -182,6 +228,18 @@ class MapRenderer:
                 success=False,
                 error_message="Rendering timed out after 5 minutes.",
             )
+
+        if self._cancelled:
+            self._job = None
+            self._job_layer_ids.clear()
+            return RenderResult(
+                image=None, width=request.width, height=request.height,
+                success=False,
+                error_message="Rendering was cancelled because a layer was removed.",
+            )
+
+        self._job = None
+        self._job_layer_ids.clear()
 
         # --- collect result -----------------------------------------
         image = job.renderedImage()
@@ -212,7 +270,9 @@ class MapRenderer:
     def cancel(self) -> None:
         """Cancel an in-progress render job, if any."""
         if self._job is not None:
-            self._job.cancelWithoutBlocking()
+            if not self._cancelled:
+                self._cancelled = True
+                self._job.cancel()
             logger.info("Render job cancelled.")
 
     # ------------------------------------------------------------------
@@ -220,7 +280,7 @@ class MapRenderer:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_settings(request: RenderRequest) -> QgsMapSettings:
+    def _build_settings(request: RenderRequest, layers=None) -> QgsMapSettings:
         """
         Build a QgsMapSettings object from a RenderRequest.
 
@@ -230,7 +290,7 @@ class MapRenderer:
         settings = QgsMapSettings()
 
         # Layers — order matters (first = bottom)
-        settings.setLayers(request.layers)
+        settings.setLayers(layers if layers is not None else request.layers)
 
         # Extent
         settings.setExtent(request.extent)

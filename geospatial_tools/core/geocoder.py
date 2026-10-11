@@ -9,6 +9,7 @@ caching, rate-limit awareness, and configurable timeouts.
 import json
 import re
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -56,6 +57,18 @@ class GeocodingResult:
     confidence: Optional[float] = None
     bbox: Optional[List[float]] = None
     raw: Dict = field(default_factory=dict)
+    name: str = ""
+    address: Dict[str, str] = field(default_factory=dict)
+    category: str = ""
+    subcategory: str = ""
+    phone: str = ""
+    website: str = ""
+    opening_hours: str = ""
+    postcode: str = ""
+    building: str = ""
+    operator: str = ""
+    provider_id: str = ""
+    metadata: Dict = field(default_factory=dict)
 
 
 @dataclass
@@ -64,6 +77,10 @@ class GeocodingError:
 
     message: str
     recoverable: bool = True
+
+
+class GeocoderRequestError(RuntimeError):
+    """A transport or HTTP failure while querying a geocoding provider."""
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +168,77 @@ def parse_coordinates(text: str) -> Optional[GeocodingResult]:
         display_name=f"{lat:.6f}, {lon:.6f}",
         source="direct_input",
         confidence=1.0,
+        name=f"{lat:.6f}, {lon:.6f}",
+        category="coordinate",
+        metadata={"query": text.strip()},
+    )
+
+
+def normalize_nominatim_result(
+    item: Dict, source: str = "Nominatim (OpenStreetMap)"
+) -> Optional[GeocodingResult]:
+    """Normalize a Nominatim record while tolerating absent optional fields."""
+    if not isinstance(item, dict):
+        return None
+    try:
+        latitude = float(item["lat"])
+        longitude = float(item["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+
+    address_data = item.get("address")
+    address = (
+        {str(key): str(value) for key, value in address_data.items() if value is not None}
+        if isinstance(address_data, dict)
+        else {}
+    )
+    extratags = item.get("extratags")
+    namedetails = item.get("namedetails")
+    extratags = extratags if isinstance(extratags, dict) else {}
+    namedetails = namedetails if isinstance(namedetails, dict) else {}
+    osm_type = str(item.get("osm_type") or "").strip()
+    osm_id = str(item.get("osm_id") or "").strip()
+    provider_id = f"{osm_type}/{osm_id}" if osm_type and osm_id else ""
+    category = str(item.get("category") or item.get("class") or "")
+    subcategory = str(item.get("type") or "")
+    display_name = str(item.get("display_name") or "")
+    name = str(
+        namedetails.get("name")
+        or item.get("name")
+        or display_name.split(",", 1)[0]
+    )
+    raw = dict(item)
+
+    return GeocodingResult(
+        latitude=latitude,
+        longitude=longitude,
+        display_name=display_name,
+        source=source,
+        confidence=NominatimGeocoder._importance_to_confidence(item.get("importance")),
+        bbox=NominatimGeocoder._parse_bbox(item.get("boundingbox")),
+        raw=raw,
+        name=name,
+        address=address,
+        category=category,
+        subcategory=subcategory,
+        phone=str(extratags.get("phone") or extratags.get("contact:phone") or ""),
+        website=str(extratags.get("website") or extratags.get("contact:website") or ""),
+        opening_hours=str(extratags.get("opening_hours") or ""),
+        postcode=str(address.get("postcode") or ""),
+        building=str(extratags.get("building") or address.get("building") or ""),
+        operator=str(extratags.get("operator") or ""),
+        provider_id=provider_id,
+        metadata={
+            "address": address,
+            "extratags": dict(extratags),
+            "namedetails": dict(namedetails),
+            "category": category,
+            "type": subcategory,
+            "osm_type": osm_type,
+            "osm_id": osm_id,
+        },
     )
 
 
@@ -231,6 +319,8 @@ class NominatimGeocoder(Geocoder):
             "q": query,
             "format": "json",
             "addressdetails": "1",
+            "extratags": "1",
+            "namedetails": "1",
             "limit": "5",
         })
         url = f"{self._url}?{params}"
@@ -242,26 +332,18 @@ class NominatimGeocoder(Geocoder):
         try:
             items = json.loads(data)
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.error(f"Failed to parse Nominatim response: {exc}")
+            raise GeocoderRequestError(
+                f"Location service returned invalid JSON: {exc}"
+            ) from exc
+        if not isinstance(items, list):
+            logger.error("Nominatim search response was not a JSON list.")
             return []
 
-        results = []
-        for item in items:
-            try:
-                result = GeocodingResult(
-                    latitude=float(item["lat"]),
-                    longitude=float(item["lon"]),
-                    display_name=item.get("display_name", ""),
-                    source=self.name,
-                    confidence=self._importance_to_confidence(
-                        item.get("importance")
-                    ),
-                    bbox=self._parse_bbox(item.get("boundingbox")),
-                    raw=item,
-                )
-                results.append(result)
-            except (KeyError, ValueError, TypeError) as exc:
-                logger.debug(f"Skipping malformed result: {exc}")
+        results = [
+            result
+            for item in items
+            if (result := normalize_nominatim_result(item, self.name)) is not None
+        ]
 
         # Cache successful results
         if results:
@@ -294,6 +376,9 @@ class NominatimGeocoder(Geocoder):
             "lon": str(longitude),
             "format": "json",
             "addressdetails": "1",
+            "extratags": "1",
+            "namedetails": "1",
+            "zoom": "18",
         })
         url = f"{self._reverse_url}?{params}"
 
@@ -304,24 +389,19 @@ class NominatimGeocoder(Geocoder):
         try:
             item = json.loads(data)
         except (json.JSONDecodeError, ValueError) as exc:
-            logger.error(f"Failed to parse reverse geocode response: {exc}")
-            return None
+            raise GeocoderRequestError(
+                f"Reverse geocoding returned invalid JSON: {exc}"
+            ) from exc
 
+        if not isinstance(item, dict):
+            logger.error("Nominatim reverse response was not a JSON object.")
+            return None
         if "error" in item:
-            logger.warning(f"Reverse geocode error: {item['error']}")
-            return None
-
-        try:
-            return GeocodingResult(
-                latitude=float(item["lat"]),
-                longitude=float(item["lon"]),
-                display_name=item.get("display_name", ""),
-                source=self.name,
-                raw=item,
+            raise GeocoderRequestError(
+                f"Reverse geocoding failed: {item['error']}"
             )
-        except (KeyError, ValueError, TypeError) as exc:
-            logger.error(f"Failed to parse reverse geocode result: {exc}")
-            return None
+
+        return normalize_nominatim_result(item, self.name)
 
     # ------------------------------------------------------------------
     # HTTP helper
@@ -335,6 +415,7 @@ class NominatimGeocoder(Geocoder):
             Response body as string, or None on failure.
         """
         self._enforce_rate_limit()
+        last_error = "request failed"
 
         for attempt in range(1, self._max_retries + 1):
             try:
@@ -349,24 +430,49 @@ class NominatimGeocoder(Geocoder):
                     return resp.read().decode("utf-8")
 
             except urllib.error.HTTPError as exc:
+                self._last_request_time = time.monotonic()
+                last_error = f"HTTP {exc.code} {exc.reason}"
                 logger.warning(
                     f"Geocoder HTTP {exc.code} (attempt {attempt}/{self._max_retries})"
                 )
+                if exc.code != 429 and not 500 <= exc.code <= 599:
+                    raise GeocoderRequestError(
+                        f"Location service rejected the request ({last_error})."
+                    ) from exc
                 if attempt < self._max_retries:
-                    time.sleep(self._rate_limit)
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    try:
+                        wait = max(self._rate_limit, min(float(retry_after), 30.0))
+                    except (TypeError, ValueError):
+                        wait = self._rate_limit
+                    time.sleep(wait)
             except urllib.error.URLError as exc:
+                self._last_request_time = time.monotonic()
+                reason = getattr(exc, "reason", exc)
+                if isinstance(reason, (TimeoutError,)):
+                    last_error = "request timed out"
+                else:
+                    last_error = f"network error: {reason}"
                 logger.warning(
-                    f"Geocoder network error: {exc.reason} "
+                    f"Geocoder {last_error} "
                     f"(attempt {attempt}/{self._max_retries})"
                 )
                 if attempt < self._max_retries:
                     time.sleep(self._rate_limit)
             except Exception as exc:
-                logger.error(f"Geocoder unexpected error: {exc}")
-                return None
+                logger.error(
+                    f"Geocoder unexpected error: {exc}\n{traceback.format_exc()}"
+                )
+                raise GeocoderRequestError(
+                    f"Location search failed unexpectedly: {exc}"
+                ) from exc
 
-        logger.error(f"Geocoder request failed after {self._max_retries} attempts")
-        return None
+        logger.error(
+            f"Geocoder request failed after {self._max_retries} attempt(s): {last_error}"
+        )
+        raise GeocoderRequestError(
+            f"Location service unavailable after {self._max_retries} attempt(s): {last_error}."
+        )
 
     def _enforce_rate_limit(self) -> None:
         """Sleep if needed to respect Nominatim's rate limit."""

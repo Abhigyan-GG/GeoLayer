@@ -6,8 +6,12 @@ import unittest
 from qgis.core import (
     QgsApplication,
     QgsCoordinateReferenceSystem,
+    QgsFeature,
+    QgsGeometry,
     QgsPointXY,
+    QgsProject,
     QgsRectangle,
+    QgsVectorLayer,
 )
 from geospatial_tools.core.aoi_manager import (
     AOIManager,
@@ -79,6 +83,25 @@ class TestAOIManager(unittest.TestCase):
         res = self.manager.create_aoi(params)
         self.assertFalse(res.success)
         self.assertIn("Centre point is required", res.error_message)
+
+    def test_layer_id_aoi_fails_safely_after_source_removal(self):
+        project = QgsProject.instance()
+        project.clear()
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "AOI source", "memory")
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromRect(QgsRectangle(1.0, 2.0, 3.0, 4.0)))
+        layer.dataProvider().addFeatures([feature])
+        layer.updateExtents()
+        project.addMapLayer(layer)
+        layer_id = layer.id()
+
+        params = AOIParameters(method=AOIMethod.FROM_LAYER, layer_id=layer_id)
+        self.assertTrue(self.manager.create_aoi(params).success)
+
+        project.removeMapLayer(layer_id)
+        result = self.manager.create_aoi(params)
+        self.assertFalse(result.success)
+        self.assertIn("No layer provided", result.error_message)
 
 
 if __name__ == "__main__":

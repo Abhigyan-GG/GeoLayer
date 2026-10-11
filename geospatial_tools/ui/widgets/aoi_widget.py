@@ -69,6 +69,7 @@ class AOIWidget(QGroupBox):
         self._manual_extent: Optional[QgsRectangle] = None
         self._manual_extent_crs: Optional[QgsCoordinateReferenceSystem] = None
         self._current_aoi: Optional[AOIResult] = None
+        self._layers_initialized = False
 
         self._setup_ui()
         self._connect_signals()
@@ -184,7 +185,7 @@ class AOIWidget(QGroupBox):
         summary_layout.addRow("CRS:", self._lbl_crs)
         layout.addWidget(summary_group)
 
-        self._populate_layers()
+        self.refresh_layers()
 
     def _connect_signals(self) -> None:
         self._btn_group.buttonClicked.connect(self._on_method_changed)
@@ -194,7 +195,7 @@ class AOIWidget(QGroupBox):
         self._btn_refresh_canvas.clicked.connect(self._on_capture_canvas_clicked)
         self._btn_start_draw.clicked.connect(self.draw_requested.emit)
         self._combo_layers.currentIndexChanged.connect(self._recalculate_aoi)
-        self._btn_refresh_layers.clicked.connect(self._populate_layers)
+        self._btn_refresh_layers.clicked.connect(self.refresh_layers)
 
     # ------------------------------------------------------------------
     # Public Methods
@@ -237,11 +238,23 @@ class AOIWidget(QGroupBox):
         # Request external canvas capture
         self.draw_requested.emit()
 
-    def _populate_layers(self) -> None:
+    def refresh_layers(self) -> None:
+        """Reload selectable AOI layers from the current project."""
+        selected_id = self._combo_layers.currentData()
+        self._combo_layers.blockSignals(True)
         self._combo_layers.clear()
+        selected_index = -1
         for layer_id, layer in QgsProject.instance().mapLayers().items():
             if layer.isValid() and not layer.extent().isEmpty():
                 self._combo_layers.addItem(layer.name(), layer_id)
+                if layer_id == selected_id:
+                    selected_index = self._combo_layers.count() - 1
+        if selected_index >= 0:
+            self._combo_layers.setCurrentIndex(selected_index)
+        elif not self._layers_initialized and self._combo_layers.count():
+            self._combo_layers.setCurrentIndex(0)
+        self._combo_layers.blockSignals(False)
+        self._layers_initialized = True
 
     def _recalculate_aoi(self) -> None:
         method_id = self._btn_group.checkedId()
@@ -282,12 +295,12 @@ class AOIWidget(QGroupBox):
         elif method_id == 4:  # Layer
             layer_id = self._combo_layers.currentData()
             layer = QgsProject.instance().mapLayer(layer_id) if layer_id else None
-            if layer is None:
+            if layer is None or not layer.isValid():
                 self._update_display_none("No valid layer selected.")
                 return
             params = AOIParameters(
                 method=AOIMethod.FROM_LAYER,
-                layer=layer,
+                layer_id=layer.id(),
             )
         else:
             return
@@ -312,3 +325,24 @@ class AOIWidget(QGroupBox):
         self._lbl_dims.setText("—")
         self._lbl_crs.setText("—")
         self._current_aoi = None
+
+    def layer_removed(self, layer_ids: set) -> None:
+        """Clear a selected layer AOI when its source leaves the project."""
+        selected_id = self._combo_layers.currentData()
+        if selected_id not in layer_ids:
+            return
+        self._combo_layers.blockSignals(True)
+        self._combo_layers.setCurrentIndex(-1)
+        self._combo_layers.blockSignals(False)
+        if self._btn_group.checkedId() == 4:
+            self._update_display_none("AOI source layer was removed. Select another layer.")
+            self.aoi_changed.emit(AOIResult(
+                success=False,
+                error_message="AOI source layer was removed.",
+            ))
+
+    def clear_source_layer(self) -> None:
+        """Clear the selected layer AOI after the project is cleared."""
+        selected_id = self._combo_layers.currentData()
+        if selected_id:
+            self.layer_removed({selected_id})

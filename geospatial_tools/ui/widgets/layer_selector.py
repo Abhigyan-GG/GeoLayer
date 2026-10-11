@@ -102,54 +102,68 @@ class LayerSelectorWidget(QGroupBox):
     # ------------------------------------------------------------------
 
     def refresh_layers(self) -> None:
-        """Reload layers from the active QGIS project."""
+        """Rebuild the table from current project state, retaining valid selections."""
+        previously_selected = set(self.get_selected_layer_ids())
+        previous_ids = {info.layer_id for info in self._layers_cache}
+        valid_ids = self._manager.get_valid_layer_ids()
+        previously_selected.intersection_update(valid_ids)
+
         self._table.blockSignals(True)
-        self._table.setRowCount(0)
+        try:
+            self._table.setRowCount(0)
+            self._layers_cache = self._manager.get_all_layers()
+            self._table.setRowCount(len(self._layers_cache))
+            for row, info in enumerate(self._layers_cache):
+                checked = (
+                    info.layer_id in previously_selected
+                    if info.layer_id in previous_ids
+                    else info.visible
+                )
+                chk_item = QTableWidgetItem()
+                chk_item.setFlags(ITEM_CHECKABLE | ITEM_ENABLED)
+                chk_item.setCheckState(CHECK_CHECKED if checked else CHECK_UNCHECKED)
+                chk_item.setData(USER_ROLE, info.layer_id)
+                self._table.setItem(row, 0, chk_item)
 
-        self._layers_cache = self._manager.get_all_layers()
+                name_item = QTableWidgetItem(info.name)
+                name_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
+                self._table.setItem(row, 1, name_item)
 
-        self._table.setRowCount(len(self._layers_cache))
-        for row, info in enumerate(self._layers_cache):
-            # Checkbox item
-            chk_item = QTableWidgetItem()
-            chk_item.setFlags(ITEM_CHECKABLE | ITEM_ENABLED)
-            chk_item.setCheckState(CHECK_CHECKED if info.visible else CHECK_UNCHECKED)
-            chk_item.setData(USER_ROLE, info.layer_id)
-            self._table.setItem(row, 0, chk_item)
+                type_item = QTableWidgetItem(info.layer_type.capitalize())
+                type_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
+                self._table.setItem(row, 2, type_item)
 
-            # Name item
-            name_item = QTableWidgetItem(info.name)
-            name_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
-            self._table.setItem(row, 1, name_item)
-
-            # Type item
-            type_item = QTableWidgetItem(info.layer_type.capitalize())
-            type_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
-            self._table.setItem(row, 2, type_item)
-
-            # CRS item
-            crs_item = QTableWidgetItem(info.crs_auth or "—")
-            crs_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
-            self._table.setItem(row, 3, crs_item)
-
-        self._table.blockSignals(False)
+                crs_item = QTableWidgetItem(info.crs_auth or "—")
+                crs_item.setFlags(ITEM_ENABLED | ITEM_SELECTABLE)
+                self._table.setItem(row, 3, crs_item)
+        finally:
+            self._table.blockSignals(False)
         self._emit_selection()
 
     def get_selected_layer_ids(self) -> List[str]:
         """
-        Return the list of checked layer IDs in rendering order
-        (bottom to top / layer tree order inverted for painter).
+        Return checked IDs in project layer-tree order (top to bottom).
         """
         selected_ids: List[str] = []
+        valid_ids = self._manager.get_valid_layer_ids()
         for row in range(self._table.rowCount()):
             item = self._table.item(row, 0)
             if item and item.checkState() == CHECK_CHECKED:
                 layer_id = item.data(USER_ROLE)
-                if layer_id:
+                if layer_id and layer_id in valid_ids:
                     selected_ids.append(layer_id)
-        # Note: in QGIS layer tree, top is index 0. For QgsMapSettings,
-        # layers are rendered back-to-front, so we keep order or reverse as desired.
+        # QgsMapSettings uses index zero for the topmost layer.
         return selected_ids
+
+    def layer_will_be_removed(self, layer_ids: set) -> None:
+        """Uncheck IDs before QGIS destroys their layer objects."""
+        self._table.blockSignals(True)
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, 0)
+            if item and item.data(USER_ROLE) in layer_ids:
+                item.setCheckState(CHECK_UNCHECKED)
+        self._table.blockSignals(False)
+        self._emit_selection()
 
     # ------------------------------------------------------------------
     # Internal Slots
@@ -162,11 +176,16 @@ class LayerSelectorWidget(QGroupBox):
         self._set_all_check_states(CHECK_UNCHECKED)
 
     def _select_visible(self) -> None:
+        visible_ids = {
+            info.layer_id for info in self._manager.get_visible_layers()
+        }
         self._table.blockSignals(True)
         for row, info in enumerate(self._layers_cache):
             item = self._table.item(row, 0)
             if item:
-                item.setCheckState(CHECK_CHECKED if info.visible else CHECK_UNCHECKED)
+                item.setCheckState(
+                    CHECK_CHECKED if info.layer_id in visible_ids else CHECK_UNCHECKED
+                )
         self._table.blockSignals(False)
         self._emit_selection()
 

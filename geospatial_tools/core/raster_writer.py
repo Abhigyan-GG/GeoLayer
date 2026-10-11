@@ -6,6 +6,8 @@ Supports configurable compression, tiling, and BigTIFF.
 """
 
 import os
+import tempfile
+import traceback
 import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -98,11 +100,35 @@ class RasterWriter:
         if options is None:
             options = WriteOptions()
 
+        output_path = os.path.normpath(output_path)
+        temporary_path = ""
         try:
-            return self._write_impl(image, georef, output_path, options)
+            ensure_directory(output_path)
+            output_dir = os.path.dirname(output_path) or "."
+            prefix = f".{os.path.basename(output_path)}."
+            descriptor, temporary_path = tempfile.mkstemp(
+                prefix=prefix, suffix=".partial.tif", dir=output_dir
+            )
+            os.close(descriptor)
+            result = self._write_impl(image, georef, temporary_path, options)
+            if not result.success:
+                os.remove(temporary_path)
+                result.path = output_path
+                return result
+            os.replace(temporary_path, output_path)
+            return WriteResult(
+                success=True,
+                path=output_path,
+                file_size_bytes=os.path.getsize(output_path),
+            )
         except Exception as exc:
+            if temporary_path and os.path.exists(temporary_path):
+                try:
+                    os.remove(temporary_path)
+                except OSError as cleanup_error:
+                    logger.warning(f"Could not remove partial GeoTIFF: {cleanup_error}")
             msg = f"GeoTIFF write failed: {exc}"
-            logger.error(msg)
+            logger.error(f"{msg}\n{traceback.format_exc()}")
             return WriteResult(success=False, path=output_path, error_message=msg)
 
     # ------------------------------------------------------------------

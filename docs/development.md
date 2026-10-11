@@ -17,11 +17,17 @@ On Linux:
 python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 
+All QGIS-dependent tests require the QGIS Python environment, which provides both `qgis` and `osgeo`. A standard Python installation can run the geocoder-only suite:
+
+```bash
+python3 -m unittest tests.test_geocoder -v
+```
+
 ---
 
 ## 2. Directory Conventions
 
-- `geospatial_tools/core/`: Keep this directory completely free of Qt GUI dependencies (`QWidget`, `QDialog`, `QMessageBox`, etc.) so core geospatial logic can be tested in headless environments and CI runners.
+- `geospatial_tools/core/`: Keep this directory free of Qt Widgets and dialogs. QtCore types may be used where QGIS APIs require them.
 - `geospatial_tools/ui/`: Contains all PyQt widgets and dialogs.
 - `geospatial_tools/utils/`: Shared utilities, logging, and safety constants.
 - `tests/`: Automated unit tests using Python's `unittest` module.

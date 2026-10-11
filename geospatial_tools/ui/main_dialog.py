@@ -7,6 +7,7 @@ and automatic loading back into QGIS.
 """
 
 import os
+import traceback
 from typing import List, Optional
 
 from qgis.core import (
@@ -21,7 +22,12 @@ from qgis.core import (
     QgsRectangle,
     QgsWkbTypes,
 )
-from qgis.gui import QgsMapCanvas, QgsMapToolEmitPoint, QgsRubberBand
+from qgis.gui import (
+    QgsMapCanvas,
+    QgsMapToolEmitPoint,
+    QgsRubberBand,
+    QgsVertexMarker,
+)
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import (
@@ -39,7 +45,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..core.aoi_manager import AOIResult
-from ..core.crs_utils import transform_extent
+from ..core.crs_utils import transform_extent, transform_point
 from ..core.geocoder import GeocodingResult
 from ..core.georeferencing import build_georeference
 from ..core.layer_manager import LayerManager
@@ -84,13 +90,19 @@ class MainDialog(QDialog):
 
         # Canvas visualization rubber band
         self._rubber_band: Optional[QgsRubberBand] = None
+        self._location_marker: Optional[QgsVertexMarker] = None
         self._map_tool: Optional[QgsMapToolEmitPoint] = None
+        self._project_connections = []
+        self._layer_name_connections = {}
+        self._active_layer_ids = set()
+        self._render_invalidated = False
 
         self.setWindowTitle(f"{PLUGIN_NAME} — Geospatial Raster Toolkit")
         self.resize(780, 850)
 
         self._setup_ui()
         self._connect_signals()
+        self._connect_project_signals()
 
     # ------------------------------------------------------------------
     # UI Setup
@@ -154,67 +166,206 @@ class MainDialog(QDialog):
     def _connect_signals(self) -> None:
         # Location selected -> feed AOI widget & zoom canvas
         self._widget_location.location_selected.connect(self._on_location_selected)
+        self._widget_location.search_started.connect(self._clear_search_highlight)
 
         # AOI changed -> update export widget & canvas rubber band
         self._widget_aoi.aoi_changed.connect(self._on_aoi_changed)
         self._widget_aoi.draw_requested.connect(self._on_draw_aoi_requested)
+        self._widget_layers.selection_changed.connect(self._update_generate_enabled)
 
         # Buttons
         self._btn_preview.clicked.connect(self._zoom_to_aoi)
         self._btn_generate.clicked.connect(self._on_generate_clicked)
         self._btn_close.clicked.connect(self.close)
+        self._update_generate_enabled()
+
+    def _connect_project_signals(self) -> None:
+        if self._project_connections:
+            return
+        project = QgsProject.instance()
+        connections = (
+            (getattr(project, "layersWillBeRemoved", None), self._on_layers_will_be_removed),
+            (getattr(project, "layersRemoved", None), self._on_layers_removed),
+            (getattr(project, "layersAdded", None), self._on_layers_added),
+            (getattr(project, "cleared", None), self._on_project_cleared),
+        )
+        root = project.layerTreeRoot()
+        connections += (
+            (getattr(root, "visibilityChanged", None), self._on_project_tree_changed),
+            (getattr(root, "customOrderChanged", None), self._on_project_tree_changed),
+            (getattr(root, "addedChildren", None), self._on_project_tree_changed),
+            (getattr(root, "removedChildren", None), self._on_project_tree_changed),
+        )
+        for signal, handler in connections:
+            if signal is not None:
+                signal.connect(handler)
+                self._project_connections.append((signal, handler))
+        self._widget_location.connect_project_signals()
+        self._refresh_layer_name_connections()
+
+    def _disconnect_project_signals(self) -> None:
+        for signal, handler in self._project_connections:
+            signal.disconnect(handler)
+        self._project_connections.clear()
+        for layer_id in list(self._layer_name_connections):
+            self._disconnect_layer_name_signal(layer_id)
+        self._widget_location.disconnect_project_signals()
+
+    def _refresh_layer_name_connections(self) -> None:
+        project = QgsProject.instance()
+        current_ids = set(project.mapLayers())
+        for layer_id in set(self._layer_name_connections) - current_ids:
+            self._disconnect_layer_name_signal(layer_id)
+        for layer_id in current_ids - set(self._layer_name_connections):
+            layer = project.mapLayer(layer_id)
+            if layer is None or not layer.isValid():
+                continue
+            slot = lambda *_args: self._refresh_project_layers()
+            layer.nameChanged.connect(slot)
+            self._layer_name_connections[layer_id] = slot
+
+    def _disconnect_layer_name_signal(self, layer_id: str) -> None:
+        slot = self._layer_name_connections.pop(layer_id, None)
+        layer = QgsProject.instance().mapLayer(layer_id)
+        if slot is not None and layer is not None:
+            layer.nameChanged.disconnect(slot)
+
+    @staticmethod
+    def _signal_layer_ids(args) -> set:
+        layer_ids = set()
+        for value in args:
+            if isinstance(value, (list, tuple, set)):
+                for layer in value:
+                    layer_ids.add(layer.id() if hasattr(layer, "id") else str(layer))
+            elif hasattr(value, "id"):
+                layer_ids.add(value.id())
+            elif isinstance(value, str):
+                layer_ids.add(value)
+        return layer_ids
+
+    def _on_layers_will_be_removed(self, *args) -> None:
+        layer_ids = self._signal_layer_ids(args)
+        if not layer_ids:
+            return
+        self._widget_layers.layer_will_be_removed(layer_ids)
+        self._widget_aoi.layer_removed(layer_ids)
+        for layer_id in layer_ids:
+            self._disconnect_layer_name_signal(layer_id)
+        if self._active_layer_ids.intersection(layer_ids):
+            self._render_invalidated = True
+            self._renderer.cancel()
+
+    def _on_layers_removed(self, *_args) -> None:
+        self._refresh_project_layers()
+
+    def _on_layers_added(self, *_args) -> None:
+        self._refresh_project_layers()
+
+    def _on_project_cleared(self, *_args) -> None:
+        self._widget_aoi.clear_source_layer()
+        self._refresh_project_layers()
+
+    def _on_project_tree_changed(self, *_args) -> None:
+        self._refresh_project_layers()
+
+    def _refresh_project_layers(self) -> None:
+        self._widget_layers.refresh_layers()
+        self._widget_aoi.refresh_layers()
+        self._refresh_layer_name_connections()
+        self._update_generate_enabled()
+
+    def _update_generate_enabled(self, *_args) -> None:
+        if hasattr(self, "_btn_generate"):
+            self._btn_generate.setEnabled(
+                bool(self._widget_layers.get_selected_layer_ids())
+                and not self._progress_bar.isVisible()
+            )
 
     # ------------------------------------------------------------------
     # Location & AOI Slots
     # ------------------------------------------------------------------
 
     def _on_location_selected(self, result: GeocodingResult) -> None:
-        logger.info(f"Location chosen: {result.display_name} ({result.latitude}, {result.longitude})")
-        pt = QgsPointXY(result.longitude, result.latitude)
-        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        try:
+            logger.info(
+                f"Location chosen: {result.display_name} "
+                f"({result.latitude}, {result.longitude})"
+            )
+            pt = QgsPointXY(result.longitude, result.latitude)
+            wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
 
-        # Update AOI widget center
-        self._widget_aoi.set_center(pt, wgs84)
-
-        # Update export suggested filename
-        self._widget_export.set_suggested_filename(result.display_name or "export")
-
-        # Zoom canvas to location
-        canvas_crs = self.canvas.mapSettings().destinationCrs()
-        if result.bbox and len(result.bbox) == 4:
-            south, north, west, east = result.bbox
-            if east > west and north > south:
-                location_extent = QgsRectangle(west, south, east, north)
-            else:
-                location_extent = QgsRectangle(
-                    result.longitude - 0.01,
-                    result.latitude - 0.01,
-                    result.longitude + 0.01,
-                    result.latitude + 0.01,
-                )
-        else:
-            location_extent = QgsRectangle(
-                result.longitude - 0.01,
-                result.latitude - 0.01,
-                result.longitude + 0.01,
-                result.latitude + 0.01,
+            self._widget_aoi.set_center(pt, wgs84)
+            self._widget_export.set_suggested_filename(
+                result.name or result.display_name or "export"
             )
 
-        center = location_extent.center()
-        half_width = max(location_extent.width() * 0.6, 0.01)
-        half_height = max(location_extent.height() * 0.6, 0.01)
-        location_extent = QgsRectangle(
-            center.x() - half_width,
-            center.y() - half_height,
-            center.x() + half_width,
-            center.y() + half_height,
-        )
-        location_extent_canvas = transform_extent(
-            location_extent, wgs84, canvas_crs
-        )
-        self.canvas.zoomToFeatureExtent(location_extent_canvas)
-        self._update_rubber_band(location_extent, wgs84)
-        self.canvas.refresh()
+            canvas_crs = self.canvas.mapSettings().destinationCrs()
+            if result.bbox and len(result.bbox) == 4:
+                south, north, west, east = result.bbox
+                if east > west and north > south:
+                    location_extent = QgsRectangle(west, south, east, north)
+                else:
+                    location_extent = QgsRectangle(
+                        result.longitude - 0.001,
+                        result.latitude - 0.001,
+                        result.longitude + 0.001,
+                        result.latitude + 0.001,
+                    )
+            else:
+                location_extent = QgsRectangle(
+                    result.longitude - 0.001,
+                    result.latitude - 0.001,
+                    result.longitude + 0.001,
+                    result.latitude + 0.001,
+                )
+            center = location_extent.center()
+            half_width = max(location_extent.width() * 0.6, 0.0005)
+            half_height = max(location_extent.height() * 0.6, 0.0005)
+            location_extent = QgsRectangle(
+                center.x() - half_width,
+                center.y() - half_height,
+                center.x() + half_width,
+                center.y() + half_height,
+            )
+
+            location_extent_canvas = transform_extent(
+                location_extent, wgs84, canvas_crs
+            )
+            self.canvas.zoomToFeatureExtent(location_extent_canvas)
+            self._update_rubber_band(location_extent, wgs84)
+            self._update_location_marker(pt, wgs84)
+            self.canvas.refresh()
+        except Exception as exc:
+            logger.error(
+                f"Could not navigate to search result: {exc}\n{traceback.format_exc()}"
+            )
+            self._lbl_status.setText(f"Could not navigate to location: {exc}")
+
+    def _update_location_marker(
+        self,
+        point: QgsPointXY,
+        crs: QgsCoordinateReferenceSystem,
+    ) -> None:
+        if self._location_marker is None:
+            self._location_marker = QgsVertexMarker(self.canvas)
+            icon_types = getattr(QgsVertexMarker, "IconType", QgsVertexMarker)
+            circle_icon = getattr(
+                icon_types,
+                "ICON_CIRCLE",
+                getattr(QgsVertexMarker, "ICON_CIRCLE", 0),
+            )
+            self._location_marker.setIconType(circle_icon)
+            self._location_marker.setIconSize(14)
+            self._location_marker.setPenWidth(3)
+            self._location_marker.setColor(QColor(0, 110, 70))
+        canvas_crs = self.canvas.mapSettings().destinationCrs()
+        self._location_marker.setCenter(transform_point(point, crs, canvas_crs))
+        self._location_marker.show()
+
+    def _clear_search_highlight(self) -> None:
+        self._clear_rubber_band()
+        if self._location_marker is not None:
+            self._location_marker.hide()
 
     def _on_aoi_changed(self, aoi: AOIResult) -> None:
         if not aoi.success or aoi.extent is None:
@@ -243,11 +394,15 @@ class MainDialog(QDialog):
             QMessageBox.warning(self, "No AOI", "Please define an Area of Interest first.")
             return
 
-        canvas_crs = self.canvas.mapSettings().destinationCrs()
-        extent_canvas = transform_extent(aoi.extent, aoi.crs, canvas_crs)
-        self.canvas.setExtent(extent_canvas)
-        self.canvas.refresh()
-        self._update_rubber_band(aoi.extent, aoi.crs)
+        try:
+            canvas_crs = self.canvas.mapSettings().destinationCrs()
+            extent_canvas = transform_extent(aoi.extent, aoi.crs, canvas_crs)
+            self.canvas.setExtent(extent_canvas)
+            self.canvas.refresh()
+            self._update_rubber_band(aoi.extent, aoi.crs)
+        except Exception as exc:
+            logger.error(f"Could not zoom to AOI: {exc}\n{traceback.format_exc()}")
+            self._lbl_status.setText(f"Could not zoom to AOI: {exc}")
 
     # ------------------------------------------------------------------
     # Rubber Band Visualization
@@ -299,6 +454,7 @@ class MainDialog(QDialog):
         if not layers:
             QMessageBox.critical(self, "Validation Error", "None of the selected layers are currently valid.")
             return
+        layer_ids = [layer.id() for layer in layers]
 
         # 3. Output dimensions & safeguards
         w_px, h_px = self._widget_export.get_calculated_dimensions()
@@ -339,10 +495,19 @@ class MainDialog(QDialog):
                 return
 
         # Transform AOI extent to output CRS if needed
-        render_extent = transform_extent(aoi.extent, aoi.crs, out_crs)
+        try:
+            render_extent = transform_extent(aoi.extent, aoi.crs, out_crs)
+        except Exception as exc:
+            logger.error(
+                f"Could not transform AOI for rendering: {exc}\n{traceback.format_exc()}"
+            )
+            QMessageBox.critical(self, "CRS Transformation Failed", str(exc))
+            return
 
         # 4. Prepare UI for execution
         self._set_ui_busy(True)
+        self._active_layer_ids = set(layer_ids)
+        self._render_invalidated = False
         self._progress_bar.setVisible(True)
         self._progress_bar.setValue(10)
         self._lbl_status.setText("Initializing map render settings…")
@@ -365,6 +530,9 @@ class MainDialog(QDialog):
                 render_req,
                 on_progress=lambda msg: self._lbl_status.setText(msg),
             )
+
+            if self._render_invalidated:
+                raise RuntimeError("A selected layer was removed during rendering. Please retry.")
 
             if not render_res.success or render_res.image is None:
                 raise RuntimeError(render_res.error_message or "Map rendering failed.")
@@ -399,19 +567,24 @@ class MainDialog(QDialog):
             self._progress_bar.setValue(90)
             self._lbl_status.setText("Validating generated GeoTIFF…")
 
-            val_res = self._validator.validate(
-                path=out_path,
-                expected=georef,
-                expected_bands=4 if write_opts.include_alpha else 3,
-            )
+            try:
+                val_res = self._validator.validate(
+                    path=out_path,
+                    expected=georef,
+                    expected_bands=4 if write_opts.include_alpha else 3,
+                )
+            except Exception:
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+                raise
 
             if not val_res.valid:
                 logger.warning(f"GeoTIFF Validation issues:\n{val_res.summary}")
-                QMessageBox.warning(
-                    self,
-                    "Validation Issues",
-                    f"GeoTIFF was generated but validation encountered warnings:\n"
-                    + "\n".join(val_res.errors),
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+                raise RuntimeError(
+                    "GeoTIFF validation failed; the invalid output was removed.\n"
+                    + "\n".join(val_res.errors)
                 )
 
             # 9. Add layer to QGIS
@@ -438,12 +611,13 @@ class MainDialog(QDialog):
 
         except Exception as exc:
             err_msg = f"Generation failed: {exc}"
-            logger.error(err_msg)
+            logger.error(f"{err_msg}\n{traceback.format_exc()}")
             self._lbl_status.setText("Error during generation.")
             QMessageBox.critical(self, "Export Failed", err_msg)
             self.iface.messageBar().pushCritical(PLUGIN_NAME, err_msg)
 
         finally:
+            self._active_layer_ids.clear()
             self._set_ui_busy(False)
             self._progress_bar.setVisible(False)
 
@@ -475,7 +649,9 @@ class MainDialog(QDialog):
         self.canvas.refresh()
 
     def _set_ui_busy(self, busy: bool) -> None:
-        self._btn_generate.setEnabled(not busy)
+        self._btn_generate.setEnabled(
+            not busy and bool(self._widget_layers.get_selected_layer_ids())
+        )
         self._btn_preview.setEnabled(not busy)
         self._widget_location.setEnabled(not busy)
         self._widget_aoi.setEnabled(not busy)
@@ -483,5 +659,19 @@ class MainDialog(QDialog):
         self._widget_export.setEnabled(not busy)
 
     def closeEvent(self, event) -> None:
+        self._widget_location.cancel_pending_requests()
+        self._disconnect_project_signals()
         self._clear_rubber_band()
+        if self._location_marker is not None:
+            self._location_marker.hide()
+            self.canvas.scene().removeItem(self._location_marker)
+            self._location_marker = None
+        if self._rubber_band is not None:
+            self.canvas.scene().removeItem(self._rubber_band)
+            self._rubber_band = None
         super().closeEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._connect_project_signals()
+        self._refresh_project_layers()

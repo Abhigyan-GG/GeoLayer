@@ -17,7 +17,8 @@ Key design principles:
 ```
 geospatial_tools/
 ├── core/
-│   ├── geocoder.py         # Abstract Geocoder + Nominatim implementation
+│   ├── geocoder.py         # Provider interface and normalized Nominatim results
+│   ├── data_points.py      # Project POI layer and GeoPackage persistence
 │   ├── aoi_manager.py      # AOI calculation in metric CRS
 │   ├── layer_manager.py    # QGIS layer tree enumeration
 │   ├── renderer.py         # Parallel map rendering engine
@@ -78,3 +79,12 @@ Human Search Query (e.g. "Connaught Place")
                    ▼
       [ QGIS Project Integration ] ──> Dedicated Layer Group
 ```
+
+## 4. Lifecycle and Search Safety
+
+- Layer selectors persist IDs, not project-owned layer wrappers, and rebuild from current project state after layer-tree changes.
+- AOI-from-layer state stores a layer ID and resolves it immediately before calculation. Removal clears the source selection.
+- Rendering builds a fresh valid-layer snapshot and cancels/waits for an active job if one of its layers is about to be removed.
+- Search and reverse-geocode requests run in a worker thread; debounce timers and request tokens prevent stale results from replacing newer searches.
+- Nominatim results normalize optional address, category, provider ID, extra tags, named details, and contact fields.
+- Search results can be saved as EPSG:4326 point features in the project data-points layer and exported to GeoPackage.

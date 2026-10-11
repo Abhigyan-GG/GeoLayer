@@ -64,9 +64,9 @@ class LayerManager:
 
         for node in root.findLayers():
             layer = node.layer()
-            if layer is None:
+            if layer is None or not layer.isValid():
                 continue
-            infos.append(self._make_info(layer, node.isVisible()))
+            infos.append(self._make_info(layer, self._is_effectively_visible(node)))
 
         return infos
 
@@ -81,7 +81,7 @@ class LayerManager:
         Resolve layer IDs to QgsMapLayer instances.
 
         The returned list preserves the order of *layer_ids*, which
-        determines rendering order (first = bottom / drawn first).
+        is the QGIS render order (index zero is the top layer).
 
         Args:
             layer_ids: List of QGIS layer IDs to resolve.
@@ -95,12 +95,30 @@ class LayerManager:
 
         for lid in layer_ids:
             layer = project.mapLayer(lid)
-            if layer is not None:
+            if layer is not None and layer.isValid() and layer.id() == lid:
                 layers.append(layer)
             else:
-                logger.warning(f"Layer ID '{lid}' not found in project — skipping.")
+                logger.warning(f"Layer ID '{lid}' is missing or invalid — skipping.")
 
         return layers
+
+    def get_valid_layer_ids(self) -> set:
+        """Return IDs that still resolve to valid layers in the current project."""
+        project = QgsProject.instance()
+        return {
+            layer_id
+            for layer_id in project.mapLayers().keys()
+            if (layer := project.mapLayer(layer_id)) is not None and layer.isValid()
+        }
+
+    @staticmethod
+    def _is_effectively_visible(node: QgsLayerTreeLayer) -> bool:
+        current = node
+        while current is not None:
+            if not current.isVisible():
+                return False
+            current = current.parent()
+        return True
 
     def get_rendering_layers(
         self,
@@ -116,7 +134,7 @@ class LayerManager:
                          use currently visible layers.
 
         Returns:
-            Ordered list of QgsMapLayer (bottom → top for rendering).
+            Ordered list of QgsMapLayer in QGIS layer-tree order (top → bottom).
         """
         if selected_ids:
             layers = self.get_layers_by_ids(selected_ids)

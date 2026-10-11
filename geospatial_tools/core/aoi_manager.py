@@ -11,6 +11,7 @@ never raw degree arithmetic.
 
 from dataclasses import dataclass
 from enum import Enum
+import traceback
 from typing import Optional
 
 from qgis.core import (
@@ -73,6 +74,7 @@ class AOIParameters:
     height_m: float = DEFAULT_AOI_HEIGHT_M
     manual_extent: Optional[QgsRectangle] = None
     manual_extent_crs: Optional[QgsCoordinateReferenceSystem] = None
+    layer_id: Optional[str] = None
     layer: Optional[QgsVectorLayer] = None
 
 
@@ -138,7 +140,7 @@ class AOIManager:
                 )
         except Exception as exc:
             msg = f"AOI creation failed: {exc}"
-            logger.error(msg)
+            logger.error(f"{msg}\n{traceback.format_exc()}")
             return AOIResult(success=False, error_message=msg)
 
     # ------------------------------------------------------------------
@@ -257,17 +259,23 @@ class AOIManager:
         output_crs: Optional[QgsCoordinateReferenceSystem],
     ) -> AOIResult:
         """Use the extent of an existing vector/raster layer."""
-        if params.layer is None:
+        layer = None
+        if params.layer_id:
+            layer = QgsProject.instance().mapLayer(params.layer_id)
+        elif params.layer is not None:
+            candidate_id = params.layer.id()
+            layer = QgsProject.instance().mapLayer(candidate_id)
+        if layer is None or not layer.isValid():
             return AOIResult(success=False, error_message="No layer provided for AOI.")
 
-        layer_extent = params.layer.extent()
+        layer_extent = layer.extent()
         if layer_extent.isEmpty():
             return AOIResult(
                 success=False,
-                error_message=f"Layer '{params.layer.name()}' has an empty extent.",
+                error_message=f"Layer '{layer.name()}' has an empty extent.",
             )
 
-        layer_crs = params.layer.crs()
+        layer_crs = layer.crs()
         final_crs = output_crs or layer_crs
         final_extent = transform_extent(layer_extent, layer_crs, final_crs)
 
@@ -275,7 +283,7 @@ class AOIManager:
         w_m, h_m = extent_dimensions_metres(final_extent, final_crs)
 
         logger.info(
-            f"AOI (from layer '{params.layer.name()}') → "
+            f"AOI (from layer '{layer.name()}') → "
             f"{w_m:.0f}×{h_m:.0f} m in {final_crs.authid()}"
         )
 
