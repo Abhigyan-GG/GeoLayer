@@ -25,7 +25,6 @@ from qgis.core import (
 from qgis.gui import (
     QgsMapCanvas,
     QgsMapTool,
-    QgsMapToolEmitPoint,
     QgsRubberBand,
     QgsVertexMarker,
 )
@@ -83,10 +82,10 @@ class RectangleAOIMapTool(QgsMapTool):
         self.canvas = canvas
         self.rubber_band = rubber_band
         self.start_point = None
-        self.setCursor(Qt.CrossCursor)
+        self.setCursor(getattr(Qt, "CursorShape", Qt).CrossCursor)
 
     def canvasPressEvent(self, event):
-        if event.button() != Qt.LeftButton:
+        if event.button() != getattr(Qt, "MouseButton", Qt).LeftButton:
             return
         self.start_point = self.toMapCoordinates(event.pos())
         self.rubber_band.reset(POLYGON_GEOMETRY)
@@ -97,7 +96,7 @@ class RectangleAOIMapTool(QgsMapTool):
             self._draw(self.start_point, self.toMapCoordinates(event.pos()))
 
     def canvasReleaseEvent(self, event):
-        if self.start_point is None or event.button() != Qt.LeftButton:
+        if self.start_point is None or event.button() != getattr(Qt, "MouseButton", Qt).LeftButton:
             return
         end_point = self.toMapCoordinates(event.pos())
         start = self.start_point
@@ -108,6 +107,10 @@ class RectangleAOIMapTool(QgsMapTool):
             return
         self._draw(start, end_point)
         self.completed.emit(rect, self.canvas.mapSettings().destinationCrs())
+
+    def deactivate(self):
+        self.start_point = None
+        super().deactivate()
 
     def _draw(self, first, second):
         rect = QgsRectangle(first, second)
@@ -135,7 +138,7 @@ class MainDialog(QDialog):
         # Canvas visualization rubber band
         self._rubber_band: Optional[QgsRubberBand] = None
         self._location_marker: Optional[QgsVertexMarker] = None
-        self._map_tool: Optional[QgsMapToolEmitPoint] = None
+        self._map_tool: Optional[RectangleAOIMapTool] = None
         self._previous_map_tool = None
         self._project_connections = []
         self._layer_name_connections = {}
@@ -442,6 +445,8 @@ class MainDialog(QDialog):
     def _on_draw_aoi_requested(self) -> None:
         """Activate a QGIS canvas drag tool and capture its rectangle."""
         self._ensure_aoi_rubber_band()
+        if self._map_tool is not None and self.canvas.mapTool() == self._map_tool:
+            return
         if self._map_tool is not None:
             try:
                 self._map_tool.completed.disconnect(self._on_rectangle_selected)
@@ -451,14 +456,22 @@ class MainDialog(QDialog):
         self._map_tool.completed.connect(self._on_rectangle_selected)
         self._previous_map_tool = self.canvas.mapTool()
         self.canvas.setMapTool(self._map_tool)
+        self.canvas.setFocus()
         self._lbl_status.setText("Drag on the map canvas to select an AOI.")
 
     def _on_rectangle_selected(self, extent, crs):
         self._widget_aoi.set_manual_extent(extent, crs)
         self._lbl_status.setText("AOI selected from the map canvas.")
-        if self.canvas.mapTool() == self._map_tool and self._previous_map_tool is not None:
-            self.canvas.setMapTool(self._previous_map_tool)
+        self._restore_map_tool()
+
+    def _restore_map_tool(self):
+        if self._map_tool is not None and self.canvas.mapTool() == self._map_tool:
+            if self._previous_map_tool is not None:
+                self.canvas.setMapTool(self._previous_map_tool)
+            else:
+                self.canvas.unsetMapTool(self._map_tool)
         self._map_tool = None
+        self._previous_map_tool = None
 
     def _ensure_aoi_rubber_band(self):
         if self._rubber_band is None:
@@ -499,7 +512,7 @@ class MainDialog(QDialog):
             "check available disk and memory.</p>"
         )
         guide.setWordWrap(True)
-        guide.setTextFormat(Qt.RichText)
+        guide.setTextFormat(getattr(Qt, "TextFormat", Qt).RichText)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(guide)
@@ -781,12 +794,7 @@ class MainDialog(QDialog):
         self._widget_export.setEnabled(not busy)
 
     def closeEvent(self, event) -> None:
-        if self._map_tool is not None and self.canvas.mapTool() == self._map_tool:
-            if self._previous_map_tool is not None:
-                self.canvas.setMapTool(self._previous_map_tool)
-            else:
-                self.canvas.unsetMapTool(self._map_tool)
-        self._map_tool = None
+        self._restore_map_tool()
         self._widget_location.cancel_pending_requests()
         self._disconnect_project_signals()
         self._clear_rubber_band()
