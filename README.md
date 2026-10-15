@@ -111,6 +111,10 @@ qgis-geospatial-tools/
 
 ## 📖 Step-by-Step Usage
 
+Click **Help / How to Use** in the plugin dialog for an in-app guide to the complete search, AOI, and export workflow. To draw an AOI, select **Draw rectangle on canvas**, click **Click & Drag Extent on Map**, then drag directly on the QGIS map canvas. The completed rectangle is transformed into the plugin's AOI CRS and used by the export pipeline.
+
+The offline location registry includes **CFEES — Centre for Fire, Explosive and Environment Safety, Timarpur, Delhi**, at WGS 84 coordinates `28.7037056, 77.2168583`. Search aliases include CFEES, CFEES Timarpur, DRDO CFEES, CFEES Delhi, and the full organization name.
+
 ### 1. Open the Plugin
 Click the **GeoSpatial Tools** icon on the toolbar or select **Raster → GeoSpatial Tools → Render & Generate GeoTIFF…**.
 

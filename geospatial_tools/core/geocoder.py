@@ -31,6 +31,27 @@ from ..utils.plugin_logger import get_logger
 logger = get_logger()
 
 
+def predefined_location(query: str) -> Optional["GeocodingResult"]:
+    """Return the offline CFEES registry record for a matching query."""
+    normalized = re.sub(r"[^a-z0-9]+", " ", query.casefold()).strip()
+    aliases = {
+        "cfees", "cfees timarpur", "drdo cfees", "cfees delhi",
+        "centre for fire explosive and environment safety",
+        "centre for fire explosives and environment safety",
+    }
+    if normalized not in aliases:
+        return None
+    return GeocodingResult(
+        latitude=28.7037056, longitude=77.2168583,
+        display_name="CFEES — Centre for Fire, Explosive and Environment Safety, Timarpur, Delhi, India",
+        source="Local location registry", name="CFEES",
+        address={"road": "Brig SK Mazumdar Marg", "suburb": "Timarpur", "city": "Delhi", "country": "India"},
+        category="organization", subcategory="research facility",
+        postcode="110054", provider_id="local/cfees-timarpur",
+        metadata={"coordinate_source": "User-provided reference coordinates"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -301,6 +322,10 @@ class NominatimGeocoder(Geocoder):
         query = query.strip()
         if not query:
             return []
+
+        registered = predefined_location(query)
+        if registered is not None:
+            return [registered]
 
         # Try direct coordinate parsing first — no network needed
         direct = parse_coordinates(query)

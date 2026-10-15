@@ -219,6 +219,7 @@ class AOIWidget(QGroupBox):
         """Set an extent acquired from map canvas or interactive drawing."""
         self._manual_extent = extent
         self._manual_extent_crs = crs or QgsProject.instance().crs()
+        self._radio_draw.setChecked(True)
         self._recalculate_aoi()
 
     def current_aoi(self) -> Optional[AOIResult]:

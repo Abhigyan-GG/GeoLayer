@@ -24,11 +24,12 @@ from qgis.core import (
 )
 from qgis.gui import (
     QgsMapCanvas,
+    QgsMapTool,
     QgsMapToolEmitPoint,
     QgsRubberBand,
     QgsVertexMarker,
 )
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import (
     QDialog,
@@ -73,6 +74,49 @@ from .widgets.location_widget import LocationWidget
 logger = get_logger()
 
 
+class RectangleAOIMapTool(QgsMapTool):
+    """Native canvas tool for drawing a rectangular AOI."""
+    completed = pyqtSignal(object, object)
+
+    def __init__(self, canvas, rubber_band):
+        super().__init__(canvas)
+        self.canvas = canvas
+        self.rubber_band = rubber_band
+        self.start_point = None
+        self.setCursor(Qt.CrossCursor)
+
+    def canvasPressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        self.start_point = self.toMapCoordinates(event.pos())
+        self.rubber_band.reset(POLYGON_GEOMETRY)
+        self._draw(self.start_point, self.start_point)
+
+    def canvasMoveEvent(self, event):
+        if self.start_point is not None:
+            self._draw(self.start_point, self.toMapCoordinates(event.pos()))
+
+    def canvasReleaseEvent(self, event):
+        if self.start_point is None or event.button() != Qt.LeftButton:
+            return
+        end_point = self.toMapCoordinates(event.pos())
+        start = self.start_point
+        self.start_point = None
+        rect = QgsRectangle(start, end_point)
+        if rect.width() <= 0 or rect.height() <= 0:
+            self.rubber_band.reset(POLYGON_GEOMETRY)
+            return
+        self._draw(start, end_point)
+        self.completed.emit(rect, self.canvas.mapSettings().destinationCrs())
+
+    def _draw(self, first, second):
+        rect = QgsRectangle(first, second)
+        if rect.isEmpty():
+            return
+        self.rubber_band.setToGeometry(QgsGeometry.fromRect(rect), self.canvas.mapSettings().destinationCrs())
+        self.rubber_band.show()
+
+
 class MainDialog(QDialog):
     """
     Main dialog window for GeoSpatial Tools.
@@ -92,6 +136,7 @@ class MainDialog(QDialog):
         self._rubber_band: Optional[QgsRubberBand] = None
         self._location_marker: Optional[QgsVertexMarker] = None
         self._map_tool: Optional[QgsMapToolEmitPoint] = None
+        self._previous_map_tool = None
         self._project_connections = []
         self._layer_name_connections = {}
         self._active_layer_ids = set()
@@ -118,6 +163,13 @@ class MainDialog(QDialog):
         content_layout = QVBoxLayout(container)
 
         # 1. Location search widget
+        help_row = QHBoxLayout()
+        help_row.addStretch(1)
+        self._btn_help = QPushButton("Help / How to Use")
+        self._btn_help.setToolTip("Open the step-by-step guide for searching, selecting an AOI, and exporting.")
+        help_row.addWidget(self._btn_help)
+        content_layout.addLayout(help_row)
+
         self._widget_location = LocationWidget()
         content_layout.addWidget(self._widget_location)
 
@@ -175,6 +227,7 @@ class MainDialog(QDialog):
 
         # Buttons
         self._btn_preview.clicked.connect(self._zoom_to_aoi)
+        self._btn_help.clicked.connect(self._show_help)
         self._btn_generate.clicked.connect(self._on_generate_clicked)
         self._btn_close.clicked.connect(self.close)
         self._update_generate_enabled()
@@ -334,6 +387,11 @@ class MainDialog(QDialog):
             self.canvas.zoomToFeatureExtent(location_extent_canvas)
             self._update_rubber_band(location_extent, wgs84)
             self._update_location_marker(pt, wgs84)
+            if self._location_marker is not None:
+                self._location_marker.setToolTip(
+                    "CFEES — Timarpur, Delhi" if result.provider_id == "local/cfees-timarpur"
+                    else (result.name or result.display_name)
+                )
             self.canvas.refresh()
         except Exception as exc:
             logger.error(
@@ -382,11 +440,75 @@ class MainDialog(QDialog):
         self._update_rubber_band(aoi.extent, aoi.crs)
 
     def _on_draw_aoi_requested(self) -> None:
-        """Capture canvas extent as AOI."""
-        canvas_ext = self.canvas.extent()
-        canvas_crs = self.canvas.mapSettings().destinationCrs()
-        self._widget_aoi.set_manual_extent(canvas_ext, canvas_crs)
-        self._lbl_status.setText("Captured current map canvas extent as AOI.")
+        """Activate a QGIS canvas drag tool and capture its rectangle."""
+        self._ensure_aoi_rubber_band()
+        if self._map_tool is not None:
+            try:
+                self._map_tool.completed.disconnect(self._on_rectangle_selected)
+            except (TypeError, RuntimeError):
+                pass
+        self._map_tool = RectangleAOIMapTool(self.canvas, self._rubber_band)
+        self._map_tool.completed.connect(self._on_rectangle_selected)
+        self._previous_map_tool = self.canvas.mapTool()
+        self.canvas.setMapTool(self._map_tool)
+        self._lbl_status.setText("Drag on the map canvas to select an AOI.")
+
+    def _on_rectangle_selected(self, extent, crs):
+        self._widget_aoi.set_manual_extent(extent, crs)
+        self._lbl_status.setText("AOI selected from the map canvas.")
+        if self.canvas.mapTool() == self._map_tool and self._previous_map_tool is not None:
+            self.canvas.setMapTool(self._previous_map_tool)
+        self._map_tool = None
+
+    def _ensure_aoi_rubber_band(self):
+        if self._rubber_band is None:
+            self._rubber_band = QgsRubberBand(self.canvas, POLYGON_GEOMETRY)
+            self._rubber_band.setColor(QColor(255, 190, 0, 55))
+            self._rubber_band.setStrokeColor(QColor(0, 0, 0, 240))
+            self._rubber_band.setWidth(3)
+
+    def _show_help(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("GeoSpatial Tools — Help / How to Use")
+        dialog.resize(650, 600)
+        layout = QVBoxLayout(dialog)
+        guide = QLabel(
+            "<h2>Getting Started</h2><p>This plugin runs inside QGIS and renders selected project layers "
+            "within an AOI to a georeferenced GeoTIFF. Output pixel size controls the export grid; it does "
+            "not improve the source imagery's actual spatial resolution.</p>"
+            "<h3>1. Load Your Map</h3><p>Open or create a QGIS project, add permitted raster, vector, XYZ, WMS "
+            "or WMTS layers, and confirm they render on the canvas. Connectivity, permissions, configuration "
+            "or provider limits can prevent rendering. Check export rights for each source.</p>"
+            "<h3>2. Find a Location</h3><p>Enter a name, address or latitude/longitude, search, review results, "
+            "select the match and confirm its coordinates. Geocoding accuracy depends on address data; a locality "
+            "match may not identify an exact building.</p>"
+            "<h3>3. Select the Area</h3><p>Choose Draw rectangle on canvas, click Click &amp; Drag Extent on Map, then "
+            "hold the left mouse button at one corner, drag to the opposite corner and release. Inspect the "
+            "rectangle and dimensions. Press the Click & Drag Extent on Map button again to redraw, or choose another AOI method (radius, dimensions, canvas extent, "
+            "or layer). Use a different AOI method to reset the selection.</p>"
+            "<h3>4. Configure Export</h3><p>Select layers, output CRS, pixel size, filename and destination. Review "
+            "estimated dimensions and size. Large areas or very small pixels need substantial memory and storage.</p>"
+            "<h3>5. Generate the GeoTIFF</h3><p>Review AOI and settings, start generation, wait for rendering and "
+            "validation, review messages, then confirm the loaded raster aligns with the original map.</p>"
+            "<h3>Troubleshooting</h3><p>No search results: check spelling, connectivity, or enter coordinates. Wrong "
+            "place: inspect alternatives or use coordinates. Drag does not start / rectangle invisible: activate "
+            "Draw rectangle on canvas again and drag on the map canvas. Wrong dimensions or region: check the "
+            "displayed CRS and redraw at the intended bounds. No layers: select at least one valid layer. Remote "
+            "layers fail: check connection, credentials and provider limits. CRS missing/wrong: set an output CRS. "
+            "Export fails or is slow: check destination permissions, reduce AOI or use a larger pixel size, and "
+            "check available disk and memory.</p>"
+        )
+        guide.setWordWrap(True)
+        guide.setTextFormat(Qt.RichText)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(guide)
+        layout.addWidget(scroll)
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+        dialog.show()
+        self._help_dialog = dialog
 
     def _zoom_to_aoi(self) -> None:
         aoi = self._widget_aoi.current_aoi()
@@ -659,6 +781,12 @@ class MainDialog(QDialog):
         self._widget_export.setEnabled(not busy)
 
     def closeEvent(self, event) -> None:
+        if self._map_tool is not None and self.canvas.mapTool() == self._map_tool:
+            if self._previous_map_tool is not None:
+                self.canvas.setMapTool(self._previous_map_tool)
+            else:
+                self.canvas.unsetMapTool(self._map_tool)
+        self._map_tool = None
         self._widget_location.cancel_pending_requests()
         self._disconnect_project_signals()
         self._clear_rubber_band()

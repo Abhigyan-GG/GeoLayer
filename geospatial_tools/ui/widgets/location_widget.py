@@ -353,7 +353,7 @@ class LocationWidget(QGroupBox):
         kind = ": ".join(part for part in (result.category, result.subcategory) if part)
         if kind:
             lines.append(f"Type: {kind}")
-        lines.append(f"Coordinates: {result.latitude:.6f}, {result.longitude:.6f}")
+        lines.append(f"Coordinates: {result.latitude:.7f}, {result.longitude:.7f}")
         for label, value in (
             ("Phone", result.phone), ("Website", result.website),
             ("Hours", result.opening_hours), ("Operator", result.operator),

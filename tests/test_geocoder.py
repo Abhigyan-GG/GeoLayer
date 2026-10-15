@@ -11,6 +11,7 @@ from unittest.mock import patch
 from geospatial_tools.core.geocoder import (
     GeocoderRequestError,
     NominatimGeocoder,
+    predefined_location,
     normalize_nominatim_result,
     parse_coordinates,
 )
@@ -18,6 +19,21 @@ from geospatial_tools.core.geocoder import (
 
 class TestGeocoder(unittest.TestCase):
     """Test direct coordinate parsing and validation."""
+
+    def test_predefined_cfees_aliases_are_offline_and_identical(self):
+        aliases = (
+            "CFEES", "Cfees", " cfees   Timarpur ", "DRDO CFEES",
+            "CFEES Delhi", "Centre for Fire, Explosive and Environment Safety",
+        )
+        results = [predefined_location(alias) for alias in aliases]
+        self.assertTrue(all(results))
+        self.assertEqual({result.provider_id for result in results}, {"local/cfees-timarpur"})
+        self.assertEqual({(result.latitude, result.longitude) for result in results},
+                         {(28.7037056, 77.2168583)})
+        for alias in aliases:
+            result = NominatimGeocoder().geocode(alias)
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].provider_id, "local/cfees-timarpur")
 
     def test_parse_valid_comma_coordinates(self):
         result = parse_coordinates("28.6315, 77.2167")
